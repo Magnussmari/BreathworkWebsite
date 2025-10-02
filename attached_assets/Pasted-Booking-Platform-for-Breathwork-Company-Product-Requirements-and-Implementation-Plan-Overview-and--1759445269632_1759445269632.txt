@@ -1,0 +1,240 @@
+Booking Platform for Breathwork Company – Product Requirements and Implementation Plan
+Overview and Goals
+
+Our breath‑work company in Iceland needs a modern booking platform that makes it easy for clients to book classes and pay securely online. The platform should:
+
+Present a professionally designed business profile where clients can read about breathwork sessions, view available instructors and see pricing. Noona’s online booking pages emphasize a beautiful profile that makes the business stand out
+noona.app
+; our site should offer a similarly polished experience.
+
+Provide a self‑service booking flow that lets clients select a service (e.g., introductory breathwork class, private session), pick an available date and instructor, and fill in required details. Clients should be able to reschedule or cancel sessions within rules defined by the business. Noona allows customers to move and cancel appointments with appropriate notice
+noona.app
+; our system should match this convenience while protecting the business from last‑minute cancellations.
+
+Reduce no‑shows by charging deposits or full pre‑payments during booking. Noona Pay supports charging upfront deposits and full prepayments
+noona.app
+; the same feature is needed to secure commitment.
+
+Accept popular payment methods in Iceland. Iceland is largely cash‑free—cards and digital wallets such as Google Wallet, Apple Pay and Samsung Pay are the most popular methods
+transfi.com
+. Visa and Mastercard are widely accepted, and digital wallets are growing in popularity
+transfi.com
+. Payment gateway options include 2Checkout, Rapyd, Adyen and others. For example, 2Checkout supports cards, Apple Pay, Google Pay and more, charges ~1.4 % + 15 ISK per transaction in Iceland and allows payouts through various methods
+inai.io
+. Our platform should integrate with a provider that supports ISK and digital wallets, such as Stripe (with Apple Pay/Google Pay) or a local option like Rapyd/2Checkout.
+
+Offer payment links and vouchers so clients can pay later or buy gift cards. Noona’s paylink feature sends payment links via SMS or app notifications
+noona.app
+, and their vouchers enable discounts
+noona.app
+.
+
+Provide an administration dashboard for staff to manage schedules, update services, see bookings/payments and run reports.
+
+Target Users
+
+Clients: Adults in Reykjavík and beyond who are interested in breathwork classes, retreats or private sessions. Users should be able to book on desktop or mobile without creating friction.
+
+Staff/Instructors: Practitioners who need to manage their schedules, confirm bookings, and receive payments.
+
+Admin: Business owners/managers who need an overview of all bookings, customer data, payments and analytics.
+
+Key Features
+1. Booking & Scheduling
+
+Service catalogue: List types of breathwork sessions with descriptions, duration, pricing and any prerequisites. Noona highlights the benefits of each service and to whom it is suitable
+noona.app
+; we should do the same.
+
+Availability management: Define weekly availability for each instructor. Allow blocking of holidays and adjusting durations per instructor (Noona supports different durations per staff member
+noona.app
+).
+
+Booking flow: Clients choose a service → select an available date/time → choose instructor (optional) → provide required information (via dynamic forms). Our forms should support custom questions per service (e.g., experience level, health conditions), as Noona allows asking different questions based on services
+noona.app
+.
+
+Booking windows and notice: Set how far in advance users can book and minimum notice before an appointment can be scheduled (Noona allows controlling how long in advance clients can book
+noona.app
+).
+
+Self‑service management: Clients can reschedule or cancel within allowed notice periods
+noona.app
+. Email/SMS reminders should be sent to reduce no‑shows.
+
+Wait‑listing and capacity: For group classes, manage class capacity and create a waitlist.
+
+2. Payments and Financials
+
+Prepayments and deposits: Ability to require a deposit or full payment when booking. This reduces no‑shows and locks in revenue
+noona.app
+. The system must handle refunds if sessions are cancelled.
+
+Payment methods: Accept major cards (Visa, Mastercard), Apple Pay, Google Pay and digital wallets. Icelanders prefer cards and digital wallets
+transfi.com
+, so the gateway must support these and process Icelandic króna (ISK). Options include Stripe (which supports Apple Pay/Google Pay), 2Checkout, Rapyd and Adyen, with fees such as 1.4 % + 15 ISK per transaction in Iceland
+inai.io
+.
+
+Payment links: Generate pay‑by‑link so clients can pay later; this is useful for off‑platform bookings or invoicing
+noona.app
+.
+
+Gift cards/vouchers: Offer gift cards or promotional vouchers, similar to Noona’s personalized offers
+noona.app
+.
+
+Split payments & commissions: If sessions involve guest instructors who receive commissions, provide flexible payment splitting
+noona.app
+.
+
+Reporting & payouts: Provide reports on revenue, outstanding balances, and schedule payouts to the business’s bank account (e.g., 1–2 days after appointments
+noona.app
+).
+
+3. Communications & Marketing
+
+Confirmation and reminders: Send booking confirmations and reminders via email/SMS. Use webhooks to trigger messages.
+
+Customer notifications: Notify clients about changes, cancellations or waitlist openings. Provide receipts for payments.
+
+Analytics and tracking: Integrate with Google Analytics/Facebook Pixel to measure booking funnel performance
+noona.app
+.
+
+Promotions: Support voucher codes, package deals and gift cards.
+
+4. User Accounts & Authentication
+
+Client accounts: Users can create accounts to manage bookings, view history and save payment methods.
+
+Social login: Support sign‑in via Google or Apple ID for convenience. Optionally allow anonymous bookings with email confirmation.
+
+Staff/admin roles: Define role‑based permissions (staff can manage their own schedule; admins can manage everything). Use row‑level security to enforce data access.
+
+5. Administration Interface
+
+Dashboard: See today’s bookings, upcoming schedule, revenue, outstanding invoices and client metrics.
+
+Calendar view: Visualize bookings for each instructor and facility; allow drag‑and‑drop rescheduling.
+
+Service management: CRUD operations for services, pricing, durations and capacity.
+
+Customer management: View customer details, notes, booking history and outstanding payments.
+
+Reports & exports: Generate CSV/PDF reports for accounting and marketing.
+
+6. Technical Requirements
+
+Backend – Supabase:
+
+Database: Use Supabase’s PostgreSQL to store users, staff, services, sessions, bookings and payments. Enable row‑level security to protect sensitive data.
+
+Auth: Supabase Auth provides email/password and OAuth sign‑in; use it for clients and staff accounts.
+
+APIs: Supabase automatically exposes REST and GraphQL APIs; these will be consumed by the front‑end. Implement server‑side logic via Supabase Edge Functions (serverless functions) to handle complex operations such as creating Stripe checkout sessions.
+
+Realtime: Use Supabase Realtime to update staff dashboards as bookings occur (optional).
+
+Storage: Store media (instructor photos, marketing images) in Supabase Storage.
+
+Payment Integration – Stripe (recommended):
+
+Supabase provides a Stripe wrapper that allows you to read Stripe data via foreign data wrapper. You must install the wrappers extension and enable the stripe_wrapper FDW
+supabase.com
+. After enabling, store your Stripe API key securely in Vault and create a server definition specifying the API version
+supabase.com
+.
+
+To charge clients, write an Edge Function that calls Stripe’s REST API to create a checkout session (or payment intent). Redirect the user to Stripe’s checkout page; upon completion, Stripe will send a webhook to your Edge Function. Use the webhook to verify the payment and update the booking record in Supabase.
+
+Make sure the payment provider supports Icelandic króna (ISK) and Apple/Google Pay. Stripe supports Apple Pay and Google Pay in Europe, but if local bank transfers or wallets are needed, consider Rapyd or 2Checkout, which support multiple wallets and cards
+inai.io
+.
+
+Front‑end:
+
+Build using React or Next.js for a responsive web application. Use the @supabase/supabase-js library to interact with Supabase’s Auth and database. For forms, use a library such as React Hook Form.
+
+Use a calendar component (e.g., FullCalendar) to display availability. The calendar should fetch time slots from Supabase and disable times that are fully booked.
+
+Implement a multi‑step booking flow (service selection → date/time → instructor → form → payment) with state management (e.g., React context or Zustand).
+
+For payments, call your Supabase Edge Function to create a Stripe checkout session and then redirect the user.
+
+APIs and Webhooks:
+
+Define REST endpoints via Supabase functions for operations that require secure logic (e.g., verifying deposits, issuing refunds, generating payment links).
+
+Handle Stripe webhooks to update bookings and handle failed payments. Use row‑level security to ensure only authorized staff can access booking data.
+
+Security & Compliance:
+
+Use HTTPS throughout. Do not store payment details directly; rely on Stripe or the payment provider’s PCI‑compliant checkout.
+
+Use Supabase’s row‑level security policies to ensure users can only read their own bookings and staff can only see their own schedules.
+
+Comply with the General Data Protection Regulation (GDPR) and Icelandic privacy laws. Provide clear terms of service and privacy policy; Noona offers terms, data‑processing and privacy policy pages
+noona.app
+.
+
+Deployment:
+
+Host the front‑end on a static hosting service (e.g., Vercel or Netlify).
+
+Use Supabase for backend hosting; configure environment variables for payment provider keys and allowed domains.
+
+Implement CI/CD to deploy code from a GitHub repository. Use Supabase’s CLI for migrations.
+
+Implementation Roadmap
+
+Research & Design (1 week):
+
+Finalize user flows, wireframes and visual design.
+
+Choose payment provider (Stripe vs. 2Checkout/Rapyd) based on support for ISK, fees and integration ease. 2Checkout charges around 1.4 % + 15 ISK for European cards and supports Apple Pay and Google Pay
+inai.io
+; Stripe’s fees may be similar.
+
+Define database schema (Users, Services, Staff, Sessions, Bookings, Payments, Vouchers).
+
+Supabase Setup (1 week):
+
+Create a Supabase project and configure authentication providers.
+
+Create tables and relationships; implement row‑level security policies.
+
+Enable the wrappers extension and set up Stripe wrapper if reading data from Stripe is needed
+supabase.com
+.
+
+Front‑end Development (3 weeks):
+
+Build UI components for service catalogue, calendar selection and forms.
+
+Integrate Supabase Auth and database operations using supabase-js.
+
+Create admin dashboard with calendar and management features.
+
+Payment Integration (2 weeks):
+
+Write Edge Functions to create checkout sessions and handle webhooks.
+
+Test payments in staging environment; handle success, cancellation and refund flows.
+
+Testing & Launch (1–2 weeks):
+
+Conduct user testing; ensure booking flow works on mobile and desktop.
+
+Verify that payments process correctly and handle different payment methods.
+
+Deploy to production; monitor logs and error reporting.
+
+Conclusion
+
+Building a dedicated booking site for our breathwork company with Supabase as the backend will provide full control over user experience and data. By studying Noona’s strengths—beautiful profiles, tailored booking flows, prepayments and flexible payment options
+noona.app
+noona.app
+—we can design a platform that meets clients’ expectations while addressing Icelandic payment preferences
+transfi.com
+. Supabase’s managed Postgres, Auth and serverless functions combined with an integration to Stripe or a local gateway will allow us to implement prepayments, vouchers, payment links and detailed reporting without building infrastructure from scratch.
