@@ -50,13 +50,17 @@ export default function ClientDashboard() {
 
   const cancelBookingMutation = useMutation({
     mutationFn: async (bookingId: string) => {
-      await apiRequest("DELETE", `/api/bookings/${bookingId}`);
+      const response = await apiRequest("DELETE", `/api/bookings/${bookingId}`);
+      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/bookings'] });
+      const message = data.nextWaitlistUser 
+        ? `Booking cancelled. ${data.nextWaitlistUser.name} (next on waitlist) will be notified.`
+        : "Your booking has been cancelled successfully.";
       toast({
         title: "Booking Cancelled",
-        description: "Your booking has been cancelled successfully.",
+        description: message,
       });
     },
     onError: (error) => {

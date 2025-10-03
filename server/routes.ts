@@ -141,7 +141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Time slots routes
   app.get('/api/time-slots', async (req, res) => {
     try {
-      const { serviceId, startDate, endDate } = req.query;
+      const { serviceId, startDate, endDate, includeUnavailable } = req.query;
       
       if (!serviceId || !startDate || !endDate) {
         return res.status(400).json({ message: "serviceId, startDate, and endDate are required" });
@@ -152,7 +152,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         new Date(startDate as string),
         new Date(endDate as string)
       );
-      res.json(timeSlots);
+      
+      // If includeUnavailable is true, also fetch unavailable slots
+      if (includeUnavailable === 'true') {
+        const allTimeSlots = await storage.getAllTimeSlots(
+          serviceId as string,
+          new Date(startDate as string),
+          new Date(endDate as string)
+        );
+        res.json(allTimeSlots);
+      } else {
+        res.json(timeSlots);
+      }
     } catch (error) {
       console.error("Error fetching time slots:", error);
       res.status(500).json({ message: "Failed to fetch time slots" });
@@ -286,7 +297,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const cancelledBooking = await storage.cancelBooking(req.params.id);
-      res.json(cancelledBooking);
+      
+      // Check if there's anyone on the waitlist for this time slot
+      const nextWaitlistUser = await storage.getNextWaitlistUser(booking.bookings.timeSlotId);
+      
+      // TODO: Implement email/SMS notification when spot opens (depends on task 3 & 8)
+      // When email system is ready, send notification to nextWaitlistUser.users.email
+      // and mark the waitlist entry as notified
+      
+      res.json({ 
+        booking: cancelledBooking, 
+        nextWaitlistUser: nextWaitlistUser ? {
+          name: `${nextWaitlistUser.users.firstName} ${nextWaitlistUser.users.lastName}`,
+          email: nextWaitlistUser.users.email,
+          position: nextWaitlistUser.waitlist.position
+        } : null
+      });
     } catch (error) {
       console.error("Error cancelling booking:", error);
       res.status(500).json({ message: "Failed to cancel booking" });

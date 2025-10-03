@@ -60,6 +60,7 @@ export interface IStorage {
 
   // Time slot operations
   getAvailableTimeSlots(serviceId: string, startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User } })[]>;
+  getAllTimeSlots(serviceId: string, startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User } })[]>;
   getTimeSlot(id: string): Promise<TimeSlot | undefined>;
   createTimeSlot(timeSlot: InsertTimeSlot): Promise<TimeSlot>;
   updateTimeSlot(id: string, timeSlot: Partial<InsertTimeSlot>): Promise<TimeSlot>;
@@ -78,6 +79,7 @@ export interface IStorage {
   getWaitlistPosition(clientId: string, timeSlotId: string): Promise<number | null>;
   getWaitlist(timeSlotId: string): Promise<(Waitlist & { client: User })[]>;
   removeFromWaitlist(id: string): Promise<void>;
+  getNextWaitlistUser(timeSlotId: string): Promise<(Waitlist & { client: User }) | null>;
 
   // Blocked time operations
   getBlockedTimes(instructorId?: string, startDate?: Date, endDate?: Date): Promise<BlockedTime[]>;
@@ -262,6 +264,22 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(timeSlots.startTime));
   }
 
+  async getAllTimeSlots(serviceId: string, startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User } })[]> {
+    return await db
+      .select()
+      .from(timeSlots)
+      .innerJoin(instructors, eq(timeSlots.instructorId, instructors.id))
+      .innerJoin(users, eq(instructors.userId, users.id))
+      .where(
+        and(
+          eq(timeSlots.serviceId, serviceId),
+          gte(timeSlots.startTime, startDate),
+          lte(timeSlots.startTime, endDate)
+        )
+      )
+      .orderBy(asc(timeSlots.startTime));
+  }
+
   async getTimeSlot(id: string): Promise<TimeSlot | undefined> {
     const [timeSlot] = await db.select().from(timeSlots).where(eq(timeSlots.id, id));
     return timeSlot;
@@ -434,6 +452,18 @@ export class DatabaseStorage implements IStorage {
       .update(waitlist)
       .set({ isActive: false })
       .where(eq(waitlist.id, id));
+  }
+
+  async getNextWaitlistUser(timeSlotId: string): Promise<(Waitlist & { client: User }) | null> {
+    const results = await db
+      .select()
+      .from(waitlist)
+      .innerJoin(users, eq(waitlist.clientId, users.id))
+      .where(and(eq(waitlist.timeSlotId, timeSlotId), eq(waitlist.isActive, true)))
+      .orderBy(asc(waitlist.position))
+      .limit(1);
+    
+    return results[0] || null;
   }
 
   // Blocked time operations

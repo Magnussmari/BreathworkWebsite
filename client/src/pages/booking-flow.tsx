@@ -49,7 +49,7 @@ export default function BookingFlow() {
   });
 
   const { data: timeSlots, isLoading: timeSlotsLoading } = useQuery({
-    queryKey: ['/api/time-slots'],
+    queryKey: ['/api/time-slots', selectedService?.id, selectedDate?.toISOString()],
     queryFn: async () => {
       if (!selectedService || !selectedDate) return [];
       
@@ -69,6 +69,52 @@ export default function BookingFlow() {
       return response.json();
     },
     enabled: !!(selectedService && selectedDate),
+  });
+
+  //  Fetch all slots (including unavailable) for waitlist
+  const { data: allTimeSlots } = useQuery({
+    queryKey: ['/api/time-slots-all', selectedService?.id, selectedDate?.toISOString()],
+    queryFn: async () => {
+      if (!selectedService || !selectedDate) return [];
+      
+      const startDate = new Date(selectedDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(selectedDate);
+      endDate.setHours(23, 59, 59, 999);
+      
+      const response = await fetch(
+        `/api/time-slots?serviceId=${selectedService.id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&includeUnavailable=true`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch all time slots');
+      }
+      
+      return response.json();
+    },
+    enabled: !!(selectedService && selectedDate && timeSlots?.length === 0),
+  });
+
+  const joinWaitlistMutation = useMutation({
+    mutationFn: async (timeSlotId: string) => {
+      return await apiRequest("POST", "/api/waitlist", {
+        timeSlotId,
+        serviceId: selectedService.id,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Added to Waitlist",
+        description: "We'll notify you if a spot opens up for this time slot.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to Join Waitlist",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const form = useForm<BookingFormData>({
@@ -233,9 +279,39 @@ export default function BookingFlow() {
                         ))}
                       </div>
                     ) : timeSlots?.length === 0 ? (
-                      <p className="text-muted-foreground" data-testid="no-slots-message">
-                        No available time slots for this date. Please select another date.
-                      </p>
+                      <div>
+                        <p className="text-muted-foreground mb-4" data-testid="no-slots-message">
+                          No available time slots for this date.
+                        </p>
+                        {allTimeSlots && allTimeSlots.length > 0 && (
+                          <div className="mt-4">
+                            <h4 className="font-semibold mb-3">Join Waitlist for:</h4>
+                            <div className="space-y-2">
+                              {allTimeSlots.map((slot: any) => (
+                                <div key={slot.timeSlots.id} className="flex justify-between items-center p-3 border rounded-lg">
+                                  <div>
+                                    <div className="font-medium">
+                                      {new Date(slot.timeSlots.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(slot.timeSlots.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                    <div className="text-sm text-muted-foreground">
+                                      with {slot.instructors.user.firstName} {slot.instructors.user.lastName}
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => joinWaitlistMutation.mutate(slot.timeSlots.id)}
+                                    disabled={joinWaitlistMutation.isPending}
+                                    data-testid={`button-waitlist-${slot.timeSlots.id}`}
+                                  >
+                                    Join Waitlist
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div className="space-y-3 max-h-96 overflow-y-auto">
                         {timeSlots?.map((slot: any) => (
