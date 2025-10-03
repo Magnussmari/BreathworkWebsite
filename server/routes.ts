@@ -139,6 +139,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Time slots routes
+  app.get('/api/time-slots/admin', isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (user?.role !== 'admin') {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { startDate, endDate } = req.query;
+      const start = startDate ? new Date(startDate as string) : new Date();
+      const end = endDate ? new Date(endDate as string) : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+      
+      const allTimeSlots = await storage.getUpcomingTimeSlots(start, end);
+      res.json(allTimeSlots);
+    } catch (error) {
+      console.error("Error fetching admin time slots:", error);
+      res.status(500).json({ message: "Failed to fetch time slots" });
+    }
+  });
+
   app.get('/api/time-slots', async (req, res) => {
     try {
       const { serviceId, startDate, endDate, includeUnavailable } = req.query;
@@ -183,6 +202,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating time slot:", error);
       res.status(500).json({ message: "Failed to create time slot" });
+    }
+  });
+
+  app.delete('/api/time-slots/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (user?.role !== 'admin' && user?.role !== 'staff') {
+        return res.status(403).json({ message: "Staff or admin access required" });
+      }
+
+      await storage.deleteTimeSlot(req.params.id);
+      res.json({ message: "Time slot deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting time slot:", error);
+      res.status(500).json({ message: "Failed to delete time slot" });
     }
   });
 

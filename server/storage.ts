@@ -61,9 +61,11 @@ export interface IStorage {
   // Time slot operations
   getAvailableTimeSlots(serviceId: string, startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User } })[]>;
   getAllTimeSlots(serviceId: string, startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User } })[]>;
+  getUpcomingTimeSlots(startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User }; service: Service })[]>;
   getTimeSlot(id: string): Promise<TimeSlot | undefined>;
   createTimeSlot(timeSlot: InsertTimeSlot): Promise<TimeSlot>;
   updateTimeSlot(id: string, timeSlot: Partial<InsertTimeSlot>): Promise<TimeSlot>;
+  deleteTimeSlot(id: string): Promise<void>;
 
   // Booking operations
   getUserBookings(userId: string): Promise<(Booking & { service: Service; instructor: Instructor & { user: User }; timeSlot: TimeSlot })[]>;
@@ -280,6 +282,22 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(timeSlots.startTime));
   }
 
+  async getUpcomingTimeSlots(startDate: Date, endDate: Date): Promise<(TimeSlot & { instructor: Instructor & { user: User }; service: Service })[]> {
+    return await db
+      .select()
+      .from(timeSlots)
+      .innerJoin(instructors, eq(timeSlots.instructorId, instructors.id))
+      .innerJoin(users, eq(instructors.userId, users.id))
+      .innerJoin(services, eq(timeSlots.serviceId, services.id))
+      .where(
+        and(
+          gte(timeSlots.startTime, startDate),
+          lte(timeSlots.startTime, endDate)
+        )
+      )
+      .orderBy(asc(timeSlots.startTime));
+  }
+
   async getTimeSlot(id: string): Promise<TimeSlot | undefined> {
     const [timeSlot] = await db.select().from(timeSlots).where(eq(timeSlots.id, id));
     return timeSlot;
@@ -297,6 +315,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(timeSlots.id, id))
       .returning();
     return updatedTimeSlot;
+  }
+
+  async deleteTimeSlot(id: string): Promise<void> {
+    await db.delete(timeSlots).where(eq(timeSlots.id, id));
   }
 
   // Booking operations

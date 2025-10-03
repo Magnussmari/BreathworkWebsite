@@ -160,7 +160,18 @@ export default function AdminDashboard() {
   const { data: timeSlotsData, isLoading: timeSlotsLoading, error: timeSlotsError } = useQuery({
     queryKey: ['/api/time-slots', 'admin'],
     queryFn: async () => {
-      const response = await fetch('/api/time-slots');
+      const today = new Date();
+      const endDate = new Date(today);
+      endDate.setMonth(endDate.getMonth() + 3);
+      
+      const params = new URLSearchParams({
+        serviceId: 'all',
+        startDate: today.toISOString(),
+        endDate: endDate.toISOString(),
+        includeUnavailable: 'true',
+      });
+      
+      const response = await fetch(`/api/time-slots/admin?${params}`);
       if (!response.ok) throw new Error('Failed to fetch time slots');
       return response.json();
     },
