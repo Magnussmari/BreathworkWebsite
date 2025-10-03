@@ -72,6 +72,11 @@ A comprehensive booking platform for a breathwork company in Iceland featuring a
 - View instructor profile
 
 ### Admin Dashboard
+- **Session/Event Management**: Create and schedule breathwork sessions
+  - Simple form to create sessions by selecting service, instructor, date, and time
+  - View all upcoming sessions in a table
+  - Delete sessions with confirmation
+  - Automatic validation (end time must be after start time)
 - Service management (create, edit, delete, activate/deactivate)
 - Revenue analytics and booking statistics
 - Manage all bookings across all instructors
@@ -113,6 +118,8 @@ A comprehensive booking platform for a breathwork company in Iceland featuring a
 
 ### Time Slots
 - `GET /api/time-slots` - Get available slots (with filters)
+- `POST /api/time-slots` - Create time slot/session (admin/staff)
+- `DELETE /api/time-slots/:id` - Delete time slot/session (admin/staff)
 
 ### Bookings
 - `GET /api/bookings` - Get user bookings
@@ -167,6 +174,14 @@ npm run dev  # Starts both frontend and backend on port 5000
 The workflow "Start application" runs this command automatically.
 
 ## Recent Changes (2025-10-03)
+- **Added admin session/event management interface** (Latest)
+  - New "Sessions" tab in admin dashboard
+  - Simple form to create sessions (service, instructor, date, time)
+  - Table view of upcoming sessions with delete functionality
+  - Form validation (end time must be after start time)
+  - Designed for small businesses (2-6 events/month)
+- Fixed booking rescheduling feature with proper authorization
+- Enhanced data handling for both camelCase and snake_case field names
 - Created comprehensive MVP with all core features
 - Implemented Replit Auth integration
 - Set up Stripe payment processing
