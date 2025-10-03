@@ -69,7 +69,24 @@ const serviceFormSchema = z.object({
   prerequisites: z.string().optional(),
 });
 
+const sessionFormSchema = z.object({
+  serviceId: z.string().min(1, "Service is required"),
+  instructorId: z.string().min(1, "Instructor is required"),
+  date: z.string().min(1, "Date is required"),
+  startTime: z.string().min(1, "Start time is required"),
+  endTime: z.string().min(1, "End time is required"),
+}).refine((data) => {
+  if (data.startTime && data.endTime) {
+    return data.endTime > data.startTime;
+  }
+  return true;
+}, {
+  message: "End time must be after start time",
+  path: ["endTime"],
+});
+
 type ServiceFormData = z.infer<typeof serviceFormSchema>;
+type SessionFormData = z.infer<typeof sessionFormSchema>;
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -77,6 +94,7 @@ export default function AdminDashboard() {
   const queryClient = useQueryClient();
   const [editingService, setEditingService] = useState<any>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
 
   // Redirect if not admin
   useEffect(() => {
@@ -139,13 +157,23 @@ export default function AdminDashboard() {
     retry: false,
   });
 
+  const { data: timeSlotsData, isLoading: timeSlotsLoading, error: timeSlotsError } = useQuery({
+    queryKey: ['/api/time-slots', 'admin'],
+    queryFn: async () => {
+      const response = await fetch('/api/time-slots');
+      if (!response.ok) throw new Error('Failed to fetch time slots');
+      return response.json();
+    },
+    retry: false,
+  });
+
   // Handle errors
   useEffect(() => {
-    const errors = [analyticsError, bookingsError, servicesError, instructorsError].filter(Boolean);
+    const errors = [analyticsError, bookingsError, servicesError, instructorsError, timeSlotsError].filter(Boolean);
     errors.forEach((error) => {
       if (error && handleUnauthorizedError(error as Error)) return;
     });
-  }, [analyticsError, bookingsError, servicesError, instructorsError]);
+  }, [analyticsError, bookingsError, servicesError, instructorsError, timeSlotsError]);
 
   // Service form
   const serviceForm = useForm<ServiceFormData>({
@@ -158,6 +186,18 @@ export default function AdminDashboard() {
       maxCapacity: 1,
       category: "",
       prerequisites: "",
+    },
+  });
+
+  // Session form
+  const sessionForm = useForm<SessionFormData>({
+    resolver: zodResolver(sessionFormSchema),
+    defaultValues: {
+      serviceId: "",
+      instructorId: "",
+      date: "",
+      startTime: "",
+      endTime: "",
     },
   });
 
@@ -237,6 +277,59 @@ export default function AdminDashboard() {
     },
   });
 
+  const createSessionMutation = useMutation({
+    mutationFn: async (sessionData: SessionFormData) => {
+      const startDateTime = new Date(`${sessionData.date}T${sessionData.startTime}`);
+      const endDateTime = new Date(`${sessionData.date}T${sessionData.endTime}`);
+      
+      await apiRequest("POST", "/api/time-slots", {
+        serviceId: sessionData.serviceId,
+        instructorId: sessionData.instructorId,
+        startTime: startDateTime.toISOString(),
+        endTime: endDateTime.toISOString(),
+        isAvailable: true,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/time-slots', 'admin'] });
+      setSessionDialogOpen(false);
+      sessionForm.reset();
+      toast({
+        title: "Session Created",
+        description: "The new session has been created successfully.",
+      });
+    },
+    onError: (error) => {
+      if (handleUnauthorizedError(error as Error)) return;
+      toast({
+        title: "Creation Failed",
+        description: "Failed to create session. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteTimeSlotMutation = useMutation({
+    mutationFn: async (timeSlotId: string) => {
+      await apiRequest("DELETE", `/api/time-slots/${timeSlotId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/time-slots', 'admin'] });
+      toast({
+        title: "Session Deleted",
+        description: "The session has been deleted successfully.",
+      });
+    },
+    onError: (error) => {
+      if (handleUnauthorizedError(error as Error)) return;
+      toast({
+        title: "Deletion Failed",
+        description: "Failed to delete session. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Loading state
   if (analyticsLoading || bookingsLoading || servicesLoading || instructorsLoading) {
     return (
@@ -303,6 +396,24 @@ export default function AdminDashboard() {
       createServiceMutation.mutate(data);
     }
   };
+
+  const onSessionSubmit = (data: SessionFormData) => {
+    createSessionMutation.mutate(data);
+  };
+
+  const handleCreateSession = () => {
+    sessionForm.reset();
+    setSessionDialogOpen(true);
+  };
+
+  const upcomingSessions = timeSlotsData?.filter((slot: any) => {
+    const startTime = new Date(slot.startTime || slot.start_time);
+    return startTime > new Date();
+  }).sort((a: any, b: any) => {
+    const aTime = new Date(a.startTime || a.start_time).getTime();
+    const bTime = new Date(b.startTime || b.start_time).getTime();
+    return aTime - bTime;
+  }) || [];
 
   const todayBookings = allBookings?.filter((booking: any) => {
     const bookingDate = new Date(booking.timeSlots.startTime);
@@ -407,9 +518,12 @@ export default function AdminDashboard() {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-2/3">
+          <TabsList className="grid w-full grid-cols-6 lg:w-full">
             <TabsTrigger value="overview" data-testid="tab-overview">
               Overview
+            </TabsTrigger>
+            <TabsTrigger value="sessions" data-testid="tab-sessions">
+              Sessions
             </TabsTrigger>
             <TabsTrigger value="services" data-testid="tab-services">
               Services
@@ -482,6 +596,97 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          <TabsContent value="sessions" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="sessions-management-title">
+                Schedule Management
+              </h2>
+              <Button onClick={handleCreateSession} data-testid="button-add-session">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Session
+              </Button>
+            </div>
+
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Service</TableHead>
+                      <TableHead>Instructor</TableHead>
+                      <TableHead>Date & Time</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {upcomingSessions.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          No upcoming sessions. Create your first session to get started.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      upcomingSessions.map((slot: any) => {
+                        const startTime = new Date(slot.startTime || slot.start_time);
+                        const endTime = new Date(slot.endTime || slot.end_time);
+                        const serviceName = slot.services?.name || slot.service?.name || 'Unknown Service';
+                        const instructorFirstName = slot.instructors?.users?.firstName || slot.instructors?.users?.first_name || slot.instructor?.user?.firstName || '';
+                        const instructorLastName = slot.instructors?.users?.lastName || slot.instructors?.users?.last_name || slot.instructor?.user?.lastName || '';
+                        
+                        return (
+                          <TableRow key={slot.id} data-testid={`session-row-${slot.id}`}>
+                            <TableCell className="font-medium">{serviceName}</TableCell>
+                            <TableCell>{instructorFirstName} {instructorLastName}</TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div>{format(startTime, 'MMM d, yyyy')}</div>
+                                <div className="text-muted-foreground">
+                                  {format(startTime, 'h:mm a')} - {format(endTime, 'h:mm a')}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={slot.isAvailable || slot.is_available ? "default" : "secondary"}>
+                                {slot.isAvailable || slot.is_available ? "Available" : "Booked"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="outline" size="sm" data-testid={`button-delete-session-${slot.id}`}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Session</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to delete this session? This action cannot be undone.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => deleteTimeSlotMutation.mutate(slot.id)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="services" className="space-y-6">
@@ -894,6 +1099,152 @@ export default function AdminDashboard() {
                     data-testid="button-save-service"
                   >
                     {editingService ? 'Update Service' : 'Create Service'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Session Creation Dialog */}
+        <Dialog open={sessionDialogOpen} onOpenChange={setSessionDialogOpen}>
+          <DialogContent className="max-w-xl" data-testid="session-dialog">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-2xl">
+                Create New Session
+              </DialogTitle>
+              <DialogDescription>
+                Schedule a new breathwork session by selecting the service, instructor, date, and time.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <Form {...sessionForm}>
+              <form onSubmit={sessionForm.handleSubmit(onSessionSubmit)} className="space-y-4">
+                <FormField
+                  control={sessionForm.control}
+                  name="serviceId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-session-service">
+                            <SelectValue placeholder="Select service" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {allServices?.filter((s: any) => s.isActive).map((service: any) => (
+                            <SelectItem key={service.id} value={service.id}>
+                              {service.name} ({service.duration} min)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={sessionForm.control}
+                  name="instructorId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Instructor *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-session-instructor">
+                            <SelectValue placeholder="Select instructor" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {instructors?.filter((i: any) => i.instructors.isActive).map((instructor: any) => (
+                            <SelectItem key={instructor.instructors.id} value={instructor.instructors.id}>
+                              {instructor.users.firstName} {instructor.users.lastName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={sessionForm.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date *</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="date"
+                          min={new Date().toISOString().split('T')[0]}
+                          data-testid="input-session-date"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={sessionForm.control}
+                    name="startTime"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Start Time *</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="time"
+                            data-testid="input-session-start-time"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={sessionForm.control}
+                    name="endTime"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>End Time *</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="time"
+                            data-testid="input-session-end-time"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <DialogFooter>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => {
+                      setSessionDialogOpen(false);
+                      sessionForm.reset();
+                    }}
+                    data-testid="button-cancel-session"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    disabled={createSessionMutation.isPending}
+                    data-testid="button-save-session"
+                  >
+                    Create Session
                   </Button>
                 </DialogFooter>
               </form>
