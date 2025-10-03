@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,17 +16,29 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
-import { Calendar, Clock, User, MapPin, Phone, Mail, CreditCard, X } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, User, MapPin, Phone, Mail, CreditCard, X, CalendarClock } from "lucide-react";
 import { format } from "date-fns";
+import { Calendar } from "@/components/ui/calendar";
 
 export default function ClientDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
+  const [bookingToReschedule, setBookingToReschedule] = useState<any>(null);
+  const [rescheduleDate, setRescheduleDate] = useState<Date | undefined>();
 
   const { data: bookings, isLoading: bookingsLoading, error } = useQuery({
     queryKey: ['/api/bookings'],
@@ -78,6 +90,50 @@ export default function ClientDashboard() {
       toast({
         title: "Cancellation Failed",
         description: "Failed to cancel booking. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Available time slots for rescheduling
+  const { data: availableSlots } = useQuery({
+    queryKey: ['/api/time-slots', bookingToReschedule?.services.id, rescheduleDate?.toISOString()],
+    queryFn: async () => {
+      if (!bookingToReschedule || !rescheduleDate) return [];
+      
+      const startDate = new Date(rescheduleDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(rescheduleDate);
+      endDate.setHours(23, 59, 59, 999);
+      
+      const response = await fetch(
+        `/api/time-slots?serviceId=${bookingToReschedule.services.id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
+      );
+      
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!(bookingToReschedule && rescheduleDate),
+  });
+
+  const rescheduleMutation = useMutation({
+    mutationFn: async ({ bookingId, newTimeSlotId }: { bookingId: string; newTimeSlotId: string }) => {
+      await apiRequest("PATCH", `/api/bookings/${bookingId}`, { newTimeSlotId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/bookings'] });
+      toast({
+        title: "Booking Rescheduled",
+        description: "Your booking has been rescheduled successfully.",
+      });
+      setRescheduleDialogOpen(false);
+      setBookingToReschedule(null);
+      setRescheduleDate(undefined);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Reschedule Failed",
+        description: error.message || "Failed to reschedule booking. Please try again.",
         variant: "destructive",
       });
     },
@@ -171,30 +227,44 @@ export default function ClientDashboard() {
             </div>
           </div>
           {showCancelButton && canCancelBooking(booking) && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm" data-testid={`button-cancel-${booking.bookings.id}`}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Cancel Booking</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to cancel this booking? This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Keep Booking</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => cancelBookingMutation.mutate(booking.bookings.id)}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Cancel Booking
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setBookingToReschedule(booking);
+                  setRescheduleDialogOpen(true);
+                }}
+                data-testid={`button-reschedule-${booking.bookings.id}`}
+              >
+                <CalendarClock className="h-4 w-4 mr-1" />
+                Reschedule
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="sm" data-testid={`button-cancel-${booking.bookings.id}`}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Cancel Booking</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to cancel this booking? This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => cancelBookingMutation.mutate(booking.bookings.id)}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Cancel Booking
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           )}
         </div>
       </CardHeader>
@@ -398,6 +468,74 @@ export default function ClientDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Reschedule Dialog */}
+      <Dialog open={rescheduleDialogOpen} onOpenChange={setRescheduleDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Reschedule Booking</DialogTitle>
+          </DialogHeader>
+          
+          {bookingToReschedule && (
+            <div className="space-y-4">
+              <div className="bg-muted p-4 rounded-lg">
+                <h4 className="font-semibold mb-2">Current Booking</h4>
+                <p className="text-sm">{bookingToReschedule.services.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {format(new Date(bookingToReschedule.timeSlots.startTime), 'EEEE, MMMM d, yyyy • h:mm a')}
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Select New Date</h4>
+                <Calendar
+                  mode="single"
+                  selected={rescheduleDate}
+                  onSelect={setRescheduleDate}
+                  disabled={(date) => date < new Date()}
+                  className="rounded-md border"
+                  data-testid="calendar-reschedule"
+                />
+              </div>
+
+              {rescheduleDate && (
+                <div>
+                  <h4 className="font-semibold mb-3">Available Time Slots</h4>
+                  {availableSlots && availableSlots.length > 0 ? (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {availableSlots.map((slot: any) => (
+                        <button
+                          key={slot.timeSlots.id}
+                          onClick={() => 
+                            rescheduleMutation.mutate({
+                              bookingId: bookingToReschedule.bookings.id,
+                              newTimeSlotId: slot.timeSlots.id,
+                            })
+                          }
+                          disabled={rescheduleMutation.isPending}
+                          className="w-full p-3 border rounded-lg hover:bg-accent transition-colors text-left disabled:opacity-50"
+                          data-testid={`button-slot-${slot.timeSlots.id}`}
+                        >
+                          <div className="font-medium">
+                            {new Date(slot.timeSlots.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(slot.timeSlots.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            with {slot.instructors.users.firstName} {slot.instructors.users.lastName}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm" data-testid="no-slots-available">
+                      No available time slots for this date.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

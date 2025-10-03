@@ -319,6 +319,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reschedule booking
+  app.patch("/api/bookings/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const userId = user?.claims?.sub;
+      
+      const { newTimeSlotId } = req.body;
+      if (!newTimeSlotId) {
+        return res.status(400).json({ message: "New time slot ID is required" });
+      }
+
+      // Get the booking
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      // Check permissions
+      if (user?.role === 'client' && booking.bookings.clientId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check new slot availability
+      const newSlot = await storage.getTimeSlot(newTimeSlotId);
+      if (!newSlot || !newSlot.timeSlots.isAvailable) {
+        return res.status(400).json({ message: "Selected time slot is not available" });
+      }
+
+      // Validate new slot matches the service
+      if (newSlot.timeSlots.serviceId !== booking.bookings.serviceId) {
+        return res.status(400).json({ message: "Time slot must be for the same service" });
+      }
+
+      // Free the old slot
+      await storage.updateTimeSlot(booking.bookings.timeSlotId, { isAvailable: true });
+
+      // Mark new slot as unavailable
+      await storage.updateTimeSlot(newTimeSlotId, { isAvailable: false });
+
+      // Update booking
+      const updatedBooking = await storage.updateBooking(req.params.id, {
+        timeSlotId: newTimeSlotId,
+        instructorId: newSlot.timeSlots.instructorId,
+      });
+
+      res.json(updatedBooking);
+    } catch (error) {
+      console.error("Error rescheduling booking:", error);
+      res.status(500).json({ message: "Failed to reschedule booking" });
+    }
+  });
+
   // Waitlist routes
   app.post('/api/waitlist', isAuthenticated, async (req: any, res) => {
     try {
