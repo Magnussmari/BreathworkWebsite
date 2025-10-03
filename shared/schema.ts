@@ -226,7 +226,10 @@ export const insertServiceSchema = createInsertSchema(services).omit({ id: true,
 export const insertInstructorSchema = createInsertSchema(instructors).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAvailabilitySchema = createInsertSchema(availability).omit({ id: true, createdAt: true });
-export const insertTimeSlotSchema = createInsertSchema(timeSlots).omit({ id: true, createdAt: true });
+export const insertTimeSlotSchema = createInsertSchema(timeSlots).omit({ id: true, createdAt: true }).extend({
+  startTime: z.string().or(z.date()).transform((val) => typeof val === 'string' ? new Date(val) : val),
+  endTime: z.string().or(z.date()).transform((val) => typeof val === 'string' ? new Date(val) : val),
+});
 export const insertWaitlistSchema = createInsertSchema(waitlist).omit({ id: true, createdAt: true });
 export const insertBlockedTimeSchema = createInsertSchema(blockedTimes).omit({ id: true, createdAt: true });
 export const insertVoucherSchema = createInsertSchema(vouchers).omit({ id: true, createdAt: true });
