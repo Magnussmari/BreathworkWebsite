@@ -23,10 +23,11 @@ export default function Home() {
     queryKey: ['/api/bookings'],
   });
 
-  const upcomingBookings = userBookings?.filter((booking: any) => 
-    new Date(booking.timeSlot.startTime) > new Date() && 
-    booking.bookings.status !== 'cancelled'
-  )?.slice(0, 3) || [];
+  const upcomingBookings = userBookings?.filter((booking: any) => {
+    const timeSlot = booking?.time_slots || booking?.timeSlots;
+    const startTime = timeSlot?.start_time || timeSlot?.startTime;
+    return startTime && new Date(startTime) > new Date() && booking.bookings.status !== 'cancelled';
+  })?.slice(0, 3) || [];
 
   return (
     <div className="min-h-screen pt-16">
@@ -81,15 +82,27 @@ export default function Home() {
                   <div className="space-y-2 text-sm text-muted-foreground">
                     <div className="flex items-center">
                       <Calendar className="h-4 w-4 mr-2" />
-                      {new Date(booking.timeSlots.startTime).toLocaleDateString()}
+                      {(() => {
+                        const timeSlot = booking.time_slots || booking.timeSlots;
+                        const startTime = timeSlot?.start_time || timeSlot?.startTime;
+                        return new Date(startTime).toLocaleDateString();
+                      })()}
                     </div>
                     <div className="flex items-center">
                       <Clock className="h-4 w-4 mr-2" />
-                      {new Date(booking.timeSlots.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {(() => {
+                        const timeSlot = booking.time_slots || booking.timeSlots;
+                        const startTime = timeSlot?.start_time || timeSlot?.startTime;
+                        return new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      })()}
                     </div>
                     <div className="flex items-center">
                       <Users className="h-4 w-4 mr-2" />
-                      {booking.instructors.user.firstName} {booking.instructors.user.lastName}
+                      {(() => {
+                        const instructor = booking.instructors;
+                        const instructorUser = instructor?.users || instructor?.user;
+                        return `${instructorUser?.firstName || instructorUser?.first_name} ${instructorUser?.lastName || instructorUser?.last_name}`;
+                      })()}
                     </div>
                   </div>
                   <div className="mt-4 pt-4 border-t">

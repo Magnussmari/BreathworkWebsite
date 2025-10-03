@@ -158,18 +158,23 @@ export default function ClientDashboard() {
 
   const now = new Date();
   
-  const upcomingBookings = bookings?.filter((booking: any) => 
-    new Date(booking.timeSlots.startTime) > now && 
-    booking.bookings.status !== 'cancelled'
-  ) || [];
+  const upcomingBookings = bookings?.filter((booking: any) => {
+    const timeSlot = booking?.time_slots || booking?.timeSlots;
+    if (!timeSlot?.start_time && !timeSlot?.startTime) return false;
+    const startTime = new Date(timeSlot.start_time || timeSlot.startTime);
+    const isUpcoming = startTime > now && booking.bookings.status !== 'cancelled';
+    return isUpcoming;
+  }) || [];
 
-  const pastBookings = bookings?.filter((booking: any) => 
-    new Date(booking.timeSlots.startTime) <= now || 
-    booking.bookings.status === 'completed'
-  ) || [];
+  const pastBookings = bookings?.filter((booking: any) => {
+    const timeSlot = booking?.time_slots || booking?.timeSlots;
+    if (!timeSlot?.start_time && !timeSlot?.startTime) return false;
+    const startTime = new Date(timeSlot.start_time || timeSlot.startTime);
+    return (startTime <= now || booking.bookings.status === 'completed');
+  }) || [];
 
   const cancelledBookings = bookings?.filter((booking: any) => 
-    booking.bookings.status === 'cancelled'
+    booking?.bookings?.status === 'cancelled'
   ) || [];
 
   const getStatusBadge = (status: string, paymentStatus?: string) => {
@@ -205,7 +210,14 @@ export default function ClientDashboard() {
   };
 
   const canCancelBooking = (booking: any) => {
-    const sessionTime = new Date(booking.timeSlots.startTime);
+    const timeSlot = booking?.time_slots || booking?.timeSlots;
+    const startTime = timeSlot?.start_time || timeSlot?.startTime;
+    
+    if (!startTime || !booking?.bookings?.status) {
+      return false;
+    }
+    
+    const sessionTime = new Date(startTime);
     const hoursUntilSession = (sessionTime.getTime() - now.getTime()) / (1000 * 60 * 60);
     
     return (
@@ -272,15 +284,28 @@ export default function ClientDashboard() {
         <div className="space-y-3 text-sm">
           <div className="flex items-center text-muted-foreground">
             <Calendar className="h-4 w-4 mr-2" />
-            {format(new Date(booking.timeSlots.startTime), 'EEEE, MMMM d, yyyy')}
+            {(() => {
+              const timeSlot = booking.time_slots || booking.timeSlots;
+              const startTime = timeSlot?.start_time || timeSlot?.startTime;
+              return format(new Date(startTime), 'EEEE, MMMM d, yyyy');
+            })()}
           </div>
           <div className="flex items-center text-muted-foreground">
             <Clock className="h-4 w-4 mr-2" />
-            {format(new Date(booking.timeSlots.startTime), 'h:mm a')} - {format(new Date(booking.timeSlots.endTime), 'h:mm a')}
+            {(() => {
+              const timeSlot = booking.time_slots || booking.timeSlots;
+              const startTime = timeSlot?.start_time || timeSlot?.startTime;
+              const endTime = timeSlot?.end_time || timeSlot?.endTime;
+              return `${format(new Date(startTime), 'h:mm a')} - ${format(new Date(endTime), 'h:mm a')}`;
+            })()}
           </div>
           <div className="flex items-center text-muted-foreground">
             <User className="h-4 w-4 mr-2" />
-            {booking.instructors.users.firstName} {booking.instructors.users.lastName}
+            {(() => {
+              const instructor = booking.instructors;
+              const instructorUser = instructor?.users || instructor?.user;
+              return `${instructorUser?.firstName || instructorUser?.first_name} ${instructorUser?.lastName || instructorUser?.last_name}`;
+            })()}
           </div>
           <div className="flex items-center text-muted-foreground">
             <CreditCard className="h-4 w-4 mr-2" />
@@ -482,7 +507,11 @@ export default function ClientDashboard() {
                 <h4 className="font-semibold mb-2">Current Booking</h4>
                 <p className="text-sm">{bookingToReschedule.services.name}</p>
                 <p className="text-sm text-muted-foreground">
-                  {format(new Date(bookingToReschedule.timeSlots.startTime), 'EEEE, MMMM d, yyyy • h:mm a')}
+                  {(() => {
+                    const timeSlot = bookingToReschedule.time_slots || bookingToReschedule.timeSlots;
+                    const startTime = timeSlot?.start_time || timeSlot?.startTime;
+                    return format(new Date(startTime), 'EEEE, MMMM d, yyyy • h:mm a');
+                  })()}
                 </p>
               </div>
 
@@ -503,27 +532,36 @@ export default function ClientDashboard() {
                   <h4 className="font-semibold mb-3">Available Time Slots</h4>
                   {availableSlots && availableSlots.length > 0 ? (
                     <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {availableSlots.map((slot: any) => (
-                        <button
-                          key={slot.timeSlots.id}
-                          onClick={() => 
-                            rescheduleMutation.mutate({
-                              bookingId: bookingToReschedule.bookings.id,
-                              newTimeSlotId: slot.timeSlots.id,
-                            })
-                          }
-                          disabled={rescheduleMutation.isPending}
-                          className="w-full p-3 border rounded-lg hover:bg-accent transition-colors text-left disabled:opacity-50"
-                          data-testid={`button-slot-${slot.timeSlots.id}`}
-                        >
-                          <div className="font-medium">
-                            {new Date(slot.timeSlots.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(slot.timeSlots.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            with {slot.instructors.users.firstName} {slot.instructors.users.lastName}
-                          </div>
-                        </button>
-                      ))}
+                      {availableSlots.map((slot: any) => {
+                        const timeSlot = slot.time_slots || slot.timeSlots;
+                        const slotId = timeSlot?.id;
+                        const startTime = timeSlot?.start_time || timeSlot?.startTime;
+                        const endTime = timeSlot?.end_time || timeSlot?.endTime;
+                        const instructor = slot.instructors;
+                        const instructorUser = instructor?.users || instructor?.user;
+                        
+                        return (
+                          <button
+                            key={slotId}
+                            onClick={() => 
+                              rescheduleMutation.mutate({
+                                bookingId: bookingToReschedule.bookings.id,
+                                newTimeSlotId: slotId,
+                              })
+                            }
+                            disabled={rescheduleMutation.isPending}
+                            className="w-full p-3 border rounded-lg hover:bg-accent transition-colors text-left disabled:opacity-50"
+                            data-testid={`button-slot-${slotId}`}
+                          >
+                            <div className="font-medium">
+                              {new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              with {instructorUser?.firstName || instructorUser?.first_name} {instructorUser?.lastName || instructorUser?.last_name}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-muted-foreground text-sm" data-testid="no-slots-available">
