@@ -10,6 +10,7 @@ import {
   deleteSession,
   type AuthRequest
 } from "./supabaseAuth";
+import { sendRegistrationConfirmation } from "./email";
 import {
   insertServiceSchema,
   insertInstructorSchema,
@@ -738,6 +739,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Creating registration with data:', registrationData);
 
       const registration = await storage.createRegistration(registrationData);
+
+      // Send confirmation email
+      try {
+        const user = await storage.getUser(req.user!.id);
+        const paymentInfoList = await storage.getActivePaymentInfo();
+        const paymentInfo = paymentInfoList[0];
+
+        if (user && paymentInfo) {
+          await sendRegistrationConfirmation({
+            registration,
+            classItem,
+            user,
+            paymentInfo: {
+              companyName: paymentInfo.companyName,
+              bankName: paymentInfo.bankName,
+              accountNumber: paymentInfo.accountNumber,
+              instructions: paymentInfo.instructions || '',
+            },
+          });
+        }
+      } catch (emailError) {
+        console.error('Failed to send confirmation email:', emailError);
+        // Don't fail the registration if email fails
+      }
 
       res.json(registration);
     } catch (error) {
