@@ -202,9 +202,9 @@ export default function ClassDetail() {
                 <div>
                   <div className="flex items-baseline justify-between mb-2">
                     <span className="text-muted-foreground">Verð</span>
-                    <span className="text-3xl font-bold">{actualPrice.toLocaleString('is-IS')} ISK</span>
+                    <span className="text-3xl font-bold">{actualPrice.toLocaleString('is-IS')} kr.</span>
                   </div>
-                  <p className="text-sm text-muted-foreground">Greitt við komu</p>
+                  <p className="text-sm text-muted-foreground">Greitt með millifærslu</p>
                 </div>
 
                 {!isAuthenticated ? (
@@ -241,10 +241,10 @@ export default function ClassDetail() {
                 )}
 
                 <div className="border-t pt-4 space-y-2 text-sm text-muted-foreground">
-                  <p>✓ Staðfesting strax</p>
-                  <p>✓ Greitt við komu (reiðufé eða kort)</p>
+                  <p>✓ Pláss frátekið strax</p>
+                  <p>✓ Greiðsluupplýsingar í staðfestingarpósti</p>
+                  <p>✓ Greiðslufrestur 24 klst.</p>
                   <p>✓ Ókeypis afbókun allt að 24 klst. fyrir</p>
-                  <p>✓ Staðfestingarpóstur sendur</p>
                 </div>
               </CardContent>
             </Card>

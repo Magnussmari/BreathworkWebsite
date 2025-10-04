@@ -11,7 +11,7 @@ import { Pool } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
 import ws from 'ws';
 import { neonConfig } from '@neondatabase/serverless';
-import * as schema from './shared/schema.ts';
+import * as schema from '../shared/schema.js';
 import { eq } from 'drizzle-orm';
 
 neonConfig.webSocketConstructor = ws;
@@ -65,12 +65,37 @@ async function setup() {
       console.log(`   Max Capacity: ${template.maxCapacity} people\n`);
     }
 
+    // 3. Create company payment info
+    console.log('3️⃣  Creating company payment information...');
+
+    const existingPaymentInfo = await db.query.companyPaymentInfo.findFirst({
+      where: eq(schema.companyPaymentInfo.isActive, true),
+    });
+
+    if (existingPaymentInfo) {
+      console.log(`✅ Payment info already exists for ${existingPaymentInfo.companyName}\n`);
+    } else {
+      const [paymentInfo] = await db.insert(schema.companyPaymentInfo).values({
+        companyName: 'Breathwork ehf.',
+        companyId: '1234567890', // TODO: Replace with real kennitala
+        bankName: 'Íslandsbanki',
+        accountNumber: '0133-26-012345', // TODO: Replace with real account number
+        instructions: 'Vinsamlegast notaðu bókunarnúmerið þitt sem tilvitnun við millifærslu. Við munum staðfesta greiðsluna innan 24 klukkustunda.',
+        isActive: true,
+      }).returning();
+
+      console.log(`✅ Created payment info for ${paymentInfo.companyName}`);
+      console.log(`   Bank: ${paymentInfo.bankName}`);
+      console.log(`   Account: ${paymentInfo.accountNumber}\n`);
+    }
+
     console.log('🎉 Setup complete!\n');
 
     console.log('Next steps:');
-    console.log('1. Start the dev server: npm run dev');
-    console.log('2. Login as admin: maggismari@gmail.com');
-    console.log('3. Go to Admin Dashboard to create your first class\n');
+    console.log('1. Update payment info in Admin Dashboard');
+    console.log('2. Start the dev server: npm run dev');
+    console.log('3. Login as admin: maggismari@gmail.com');
+    console.log('4. Go to Admin Dashboard to create your first class\n');
 
   } catch (error) {
     console.error('❌ Setup failed:', error);
