@@ -69,24 +69,17 @@ const serviceFormSchema = z.object({
   prerequisites: z.string().optional(),
 });
 
-const sessionFormSchema = z.object({
-  serviceId: z.string().min(1, "Service is required"),
-  instructorId: z.string().min(1, "Instructor is required"),
-  date: z.string().min(1, "Date is required"),
-  startTime: z.string().min(1, "Start time is required"),
-  endTime: z.string().min(1, "End time is required"),
-}).refine((data) => {
-  if (data.startTime && data.endTime) {
-    return data.endTime > data.startTime;
-  }
-  return true;
-}, {
-  message: "End time must be after start time",
-  path: ["endTime"],
+const classFormSchema = z.object({
+  templateId: z.string().min(1, "Class template is required"),
+  scheduledDate: z.string().min(1, "Date and time are required"),
+  location: z.string().min(1, "Location is required"),
+  maxCapacity: z.number().min(1, "Capacity must be at least 1"),
+  customPrice: z.number().optional(),
+  instructorNotes: z.string().optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceFormSchema>;
-type SessionFormData = z.infer<typeof sessionFormSchema>;
+type ClassFormData = z.infer<typeof classFormSchema>;
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -94,7 +87,7 @@ export default function AdminDashboard() {
   const queryClient = useQueryClient();
   const [editingService, setEditingService] = useState<any>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
-  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [classDialogOpen, setClassDialogOpen] = useState(false);
 
   // Redirect if not admin
   useEffect(() => {
@@ -157,22 +150,18 @@ export default function AdminDashboard() {
     retry: false,
   });
 
-  const { data: timeSlotsData, isLoading: timeSlotsLoading, error: timeSlotsError } = useQuery({
-    queryKey: ['/api/time-slots', 'admin'],
+  const { data: classTemplates } = useQuery({
+    queryKey: ['/api/class-templates'],
+    retry: false,
+  });
+
+  const { data: classesData, isLoading: classesLoading, error: classesError } = useQuery({
+    queryKey: ['/api/classes/all'],
     queryFn: async () => {
-      const today = new Date();
-      const endDate = new Date(today);
-      endDate.setMonth(endDate.getMonth() + 3);
-      
-      const params = new URLSearchParams({
-        serviceId: 'all',
-        startDate: today.toISOString(),
-        endDate: endDate.toISOString(),
-        includeUnavailable: 'true',
+      const response = await fetch('/api/classes/all', {
+        credentials: "include"
       });
-      
-      const response = await fetch(`/api/time-slots/admin?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch time slots');
+      if (!response.ok) throw new Error('Failed to fetch classes');
       return response.json();
     },
     retry: false,
@@ -180,11 +169,11 @@ export default function AdminDashboard() {
 
   // Handle errors
   useEffect(() => {
-    const errors = [analyticsError, bookingsError, servicesError, instructorsError, timeSlotsError].filter(Boolean);
+    const errors = [analyticsError, bookingsError, servicesError, instructorsError, classesError].filter(Boolean);
     errors.forEach((error) => {
       if (error && handleUnauthorizedError(error as Error)) return;
     });
-  }, [analyticsError, bookingsError, servicesError, instructorsError, timeSlotsError]);
+  }, [analyticsError, bookingsError, servicesError, instructorsError, classesError]);
 
   // Service form
   const serviceForm = useForm<ServiceFormData>({
@@ -200,15 +189,15 @@ export default function AdminDashboard() {
     },
   });
 
-  // Session form
-  const sessionForm = useForm<SessionFormData>({
-    resolver: zodResolver(sessionFormSchema),
+  // Class form
+  const classForm = useForm<ClassFormData>({
+    resolver: zodResolver(classFormSchema),
     defaultValues: {
-      serviceId: "",
-      instructorId: "",
-      date: "",
-      startTime: "",
-      endTime: "",
+      templateId: "",
+      scheduledDate: "",
+      location: "Reykjavík, Iceland",
+      maxCapacity: 15,
+      instructorNotes: "",
     },
   });
 
@@ -288,33 +277,32 @@ export default function AdminDashboard() {
     },
   });
 
-  const createSessionMutation = useMutation({
-    mutationFn: async (sessionData: SessionFormData) => {
-      const startDateTime = new Date(`${sessionData.date}T${sessionData.startTime}`);
-      const endDateTime = new Date(`${sessionData.date}T${sessionData.endTime}`);
-      
-      await apiRequest("POST", "/api/time-slots", {
-        serviceId: sessionData.serviceId,
-        instructorId: sessionData.instructorId,
-        startTime: startDateTime.toISOString(),
-        endTime: endDateTime.toISOString(),
-        isAvailable: true,
+  const createClassMutation = useMutation({
+    mutationFn: async (classData: ClassFormData) => {
+      const response = await fetch("/api/classes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(classData),
       });
+      if (!response.ok) throw new Error("Failed to create class");
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/time-slots', 'admin'] });
-      setSessionDialogOpen(false);
-      sessionForm.reset();
+      queryClient.invalidateQueries({ queryKey: ['/api/classes/all'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/classes/upcoming'] });
+      setClassDialogOpen(false);
+      classForm.reset();
       toast({
-        title: "Session Created",
-        description: "The new session has been created successfully.",
+        title: "Class Created",
+        description: "The breathwork class has been scheduled successfully.",
       });
     },
     onError: (error) => {
       if (handleUnauthorizedError(error as Error)) return;
       toast({
         title: "Creation Failed",
-        description: "Failed to create session. Please try again.",
+        description: "Failed to create class. Please try again.",
         variant: "destructive",
       });
     },
@@ -408,21 +396,21 @@ export default function AdminDashboard() {
     }
   };
 
-  const onSessionSubmit = (data: SessionFormData) => {
-    createSessionMutation.mutate(data);
+  const onClassSubmit = (data: ClassFormData) => {
+    createClassMutation.mutate(data);
   };
 
-  const handleCreateSession = () => {
-    sessionForm.reset();
-    setSessionDialogOpen(true);
+  const handleCreateClass = () => {
+    classForm.reset();
+    setClassDialogOpen(true);
   };
 
-  const upcomingSessions = timeSlotsData?.filter((slot: any) => {
-    const startTime = new Date(slot.startTime || slot.start_time);
-    return startTime > new Date();
+  const upcomingClasses = classesData?.filter((classItem: any) => {
+    const scheduledDate = new Date(classItem.scheduledDate);
+    return scheduledDate > new Date() && classItem.status === 'upcoming';
   }).sort((a: any, b: any) => {
-    const aTime = new Date(a.startTime || a.start_time).getTime();
-    const bTime = new Date(b.startTime || b.start_time).getTime();
+    const aTime = new Date(a.scheduledDate).getTime();
+    const bTime = new Date(b.scheduledDate).getTime();
     return aTime - bTime;
   }) || [];
 
@@ -614,9 +602,9 @@ export default function AdminDashboard() {
               <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="sessions-management-title">
                 Schedule Management
               </h2>
-              <Button onClick={handleCreateSession} data-testid="button-add-session">
+              <Button onClick={handleCreateClass} data-testid="button-add-class">
                 <Plus className="h-4 w-4 mr-2" />
-                Create Session
+                Create Class
               </Button>
             </div>
 
@@ -625,70 +613,57 @@ export default function AdminDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Instructor</TableHead>
-                      <TableHead>Date & Time</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead>Tími</TableHead>
+                      <TableHead>Dagsetning</TableHead>
+                      <TableHead>Staðsetning</TableHead>
+                      <TableHead>Bókanir</TableHead>
+                      <TableHead>Verð</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {upcomingSessions.length === 0 ? (
+                    {upcomingClasses.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          No upcoming sessions. Create your first session to get started.
+                          Engir tímar. Búðu til fyrsta tíminn þinn.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      upcomingSessions.map((slot: any) => {
-                        const startTime = new Date(slot.startTime || slot.start_time);
-                        const endTime = new Date(slot.endTime || slot.end_time);
-                        const serviceName = slot.services?.name || slot.service?.name || 'Unknown Service';
-                        const instructorFirstName = slot.instructors?.users?.firstName || slot.instructors?.users?.first_name || slot.instructor?.user?.firstName || '';
-                        const instructorLastName = slot.instructors?.users?.lastName || slot.instructors?.users?.last_name || slot.instructor?.user?.lastName || '';
-                        
+                      upcomingClasses.map((classItem: any) => {
+                        const scheduledDate = new Date(classItem.scheduledDate);
+                        const actualPrice = classItem.customPrice || classItem.template?.price || 0;
+                        const spotsLeft = classItem.maxCapacity - classItem.currentBookings;
+
                         return (
-                          <TableRow key={slot.id} data-testid={`session-row-${slot.id}`}>
-                            <TableCell className="font-medium">{serviceName}</TableCell>
-                            <TableCell>{instructorFirstName} {instructorLastName}</TableCell>
+                          <TableRow key={classItem.id} data-testid={`class-row-${classItem.id}`}>
+                            <TableCell className="font-medium">{classItem.template?.name || 'Unknown'}</TableCell>
                             <TableCell>
                               <div className="text-sm">
-                                <div>{format(startTime, 'MMM d, yyyy')}</div>
+                                <div>{format(scheduledDate, 'dd. MMM yyyy')}</div>
                                 <div className="text-muted-foreground">
-                                  {format(startTime, 'h:mm a')} - {format(endTime, 'h:mm a')}
+                                  {format(scheduledDate, 'HH:mm')}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{classItem.location}</TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <span className={spotsLeft === 0 ? "text-destructive font-medium" : ""}>
+                                  {classItem.currentBookings}/{classItem.maxCapacity}
+                                </span>
+                                <div className="text-xs text-muted-foreground">
+                                  {spotsLeft === 0 ? "Fullt" : `${spotsLeft} laus`}
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Badge variant={slot.isAvailable || slot.is_available ? "default" : "secondary"}>
-                                {slot.isAvailable || slot.is_available ? "Available" : "Booked"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="outline" size="sm" data-testid={`button-delete-session-${slot.id}`}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Delete Session</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Are you sure you want to delete this session? This action cannot be undone.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() => deleteTimeSlotMutation.mutate(slot.id)}
-                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    >
-                                      Delete
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                              <div className="text-sm font-medium">
+                                {actualPrice.toLocaleString('is-IS')} kr
+                                {classItem.customPrice && (
+                                  <div className="text-xs text-muted-foreground">
+                                    (sérsniðið)
+                                  </div>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -1117,36 +1092,36 @@ export default function AdminDashboard() {
           </DialogContent>
         </Dialog>
 
-        {/* Session Creation Dialog */}
-        <Dialog open={sessionDialogOpen} onOpenChange={setSessionDialogOpen}>
-          <DialogContent className="max-w-xl" data-testid="session-dialog">
+        {/* Class Creation Dialog */}
+        <Dialog open={classDialogOpen} onOpenChange={setClassDialogOpen}>
+          <DialogContent className="max-w-xl" data-testid="class-dialog">
             <DialogHeader>
               <DialogTitle className="font-serif text-2xl">
-                Create New Session
+                Create New Class
               </DialogTitle>
               <DialogDescription>
-                Schedule a new breathwork session by selecting the service, instructor, date, and time.
+                Schedule a new breathwork class by selecting the template, date, time, and location.
               </DialogDescription>
             </DialogHeader>
-            
-            <Form {...sessionForm}>
-              <form onSubmit={sessionForm.handleSubmit(onSessionSubmit)} className="space-y-4">
+
+            <Form {...classForm}>
+              <form onSubmit={classForm.handleSubmit(onClassSubmit)} className="space-y-4">
                 <FormField
-                  control={sessionForm.control}
-                  name="serviceId"
+                  control={classForm.control}
+                  name="templateId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Service *</FormLabel>
+                      <FormLabel>Class Template *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-session-service">
-                            <SelectValue placeholder="Select service" />
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select class template" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {allServices?.filter((s: any) => s.isActive).map((service: any) => (
-                            <SelectItem key={service.id} value={service.id}>
-                              {service.name} ({service.duration} min)
+                          {classTemplates?.map((template: any) => (
+                            <SelectItem key={template.id} value={template.id}>
+                              {template.name} ({template.duration} min • {template.price} ISK)
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1157,42 +1132,16 @@ export default function AdminDashboard() {
                 />
 
                 <FormField
-                  control={sessionForm.control}
-                  name="instructorId"
+                  control={classForm.control}
+                  name="scheduledDate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Instructor *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-session-instructor">
-                            <SelectValue placeholder="Select instructor" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {instructors?.filter((i: any) => i.instructors.isActive).map((instructor: any) => (
-                            <SelectItem key={instructor.instructors.id} value={instructor.instructors.id}>
-                              {instructor.users.firstName} {instructor.users.lastName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={sessionForm.control}
-                  name="date"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Date *</FormLabel>
+                      <FormLabel>Date & Time *</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
-                          type="date"
-                          min={new Date().toISOString().split('T')[0]}
-                          data-testid="input-session-date"
+                          type="datetime-local"
+                          min={new Date().toISOString().slice(0, 16)}
                         />
                       </FormControl>
                       <FormMessage />
@@ -1200,62 +1149,93 @@ export default function AdminDashboard() {
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={sessionForm.control}
-                    name="startTime"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Start Time *</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            type="time"
-                            data-testid="input-session-start-time"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <FormField
+                  control={classForm.control}
+                  name="location"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Location *</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g., Reykjavík, Iceland" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-                  <FormField
-                    control={sessionForm.control}
-                    name="endTime"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>End Time *</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            type="time"
-                            data-testid="input-session-end-time"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={classForm.control}
+                  name="maxCapacity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max Capacity *</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          min={1}
+                          onChange={(e) => field.onChange(parseInt(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={classForm.control}
+                  name="customPrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Sérsniðið verð (valfrjálst)</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          min={0}
+                          placeholder="Sjálfgefið verð notað ef autt"
+                          onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                          value={field.value || ""}
+                        />
+                      </FormControl>
+                      <p className="text-sm text-muted-foreground">
+                        Ef þú vilt nota annað verð en template-ið gefur, sláðu það inn hér
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={classForm.control}
+                  name="instructorNotes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Instructor Notes (Optional)</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} placeholder="Any special notes for this class..." rows={3} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <DialogFooter>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                  <Button
+                    type="button"
+                    variant="outline"
                     onClick={() => {
-                      setSessionDialogOpen(false);
-                      sessionForm.reset();
+                      setClassDialogOpen(false);
+                      classForm.reset();
                     }}
-                    data-testid="button-cancel-session"
                   >
                     Cancel
                   </Button>
-                  <Button 
-                    type="submit" 
-                    disabled={createSessionMutation.isPending}
-                    data-testid="button-save-session"
+                  <Button
+                    type="submit"
+                    disabled={createClassMutation.isPending}
                   >
-                    Create Session
+                    {createClassMutation.isPending ? "Creating..." : "Create Class"}
                   </Button>
                 </DialogFooter>
               </form>

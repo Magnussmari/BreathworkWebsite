@@ -5,15 +5,15 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import NotFound from "@/pages/not-found";
-import Landing from "@/pages/landing";
+import ClassesLanding from "@/pages/classes-landing";
+import ClassDetail from "@/pages/class-detail";
+import RegistrationSuccess from "@/pages/registration-success";
+import Login from "@/pages/login";
+import Register from "@/pages/register";
 import Home from "@/pages/home";
-import BookingFlow from "@/pages/booking-flow";
 import AdminDashboard from "@/pages/admin-dashboard";
-import StaffDashboard from "@/pages/staff-dashboard";
 import ClientDashboard from "@/pages/client-dashboard";
-import Services from "@/pages/services";
-import Instructors from "@/pages/instructors";
-import Checkout from "@/pages/checkout";
+import About from "@/pages/about";
 import Navbar from "@/components/navbar";
 
 function Router() {
@@ -32,19 +32,15 @@ function Router() {
       {isAuthenticated && <Navbar />}
       
       <Switch>
-        {!isAuthenticated ? (
-          <Route path="/" component={Landing} />
-        ) : (
+        <Route path="/" component={ClassesLanding} />
+        <Route path="/about" component={About} />
+        <Route path="/class/:id" component={ClassDetail} />
+        <Route path="/login" component={Login} />
+        <Route path="/register" component={Register} />
+        {isAuthenticated && (
           <>
-            <Route path="/" component={Home} />
-            <Route path="/booking" component={BookingFlow} />
-            <Route path="/checkout" component={Checkout} />
-            <Route path="/services" component={Services} />
-            <Route path="/instructors" component={Instructors} />
             <Route path="/dashboard" component={ClientDashboard} />
-            {user?.role === 'staff' && (
-              <Route path="/staff" component={StaffDashboard} />
-            )}
+            <Route path="/registration/:id" component={RegistrationSuccess} />
             {user?.role === 'admin' && (
               <Route path="/admin" component={AdminDashboard} />
             )}

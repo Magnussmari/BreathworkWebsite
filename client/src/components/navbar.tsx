@@ -9,11 +9,47 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Calendar, User, Settings, LogOut, Home, BookOpen, Users } from "lucide-react";
 
 export default function Navbar() {
   const { user } = useAuth();
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Logout failed");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      toast({
+        title: "Útskráður",
+        description: "Þú hefur verið skráður út.",
+      });
+      setLocation("/");
+    },
+    onError: () => {
+      toast({
+        title: "Villa",
+        description: "Útskráning mistókst. Vinsamlegast reyndu aftur.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleLogout = () => {
+    logoutMutation.mutate();
+  };
 
   const getInitials = (firstName?: string, lastName?: string) => {
     return `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || 'U';
@@ -33,33 +69,25 @@ export default function Navbar() {
               <circle cx="12" cy="12" r="10" strokeWidth="2"/>
               <path d="M8 12 Q12 8 16 12 Q12 16 8 12" strokeWidth="2" fill="none"/>
             </svg>
-            <span className="font-serif text-xl font-bold text-foreground">Nordic Breath</span>
+            <span className="font-serif text-xl font-bold text-foreground">Breathwork</span>
           </Link>
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-6">
             <Link href="/" className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-colors ${isActive('/') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`} data-testid="nav-home">
               <Home className="w-4 h-4" />
-              <span>Home</span>
+              <span>Heim</span>
             </Link>
-            <Link href="/booking" className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-colors ${isActive('/booking') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`} data-testid="nav-booking">
-              <Calendar className="w-4 h-4" />
-              <span>Book Session</span>
-            </Link>
-            <Link href="/services" className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-colors ${isActive('/services') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`} data-testid="nav-services">
+            <Link href="/about" className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-colors ${isActive('/about') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`} data-testid="nav-about">
               <BookOpen className="w-4 h-4" />
-              <span>Services</span>
-            </Link>
-            <Link href="/instructors" className={`flex items-center space-x-1 px-3 py-2 rounded-lg transition-colors ${isActive('/instructors') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`} data-testid="nav-instructors">
-              <Users className="w-4 h-4" />
-              <span>Instructors</span>
+              <span>Um okkur</span>
             </Link>
           </div>
 
           {/* User Menu */}
           <div className="flex items-center space-x-4">
             <Button asChild variant="default" size="sm" data-testid="button-book-now">
-              <Link href="/booking">Book Now</Link>
+              <Link href="/">Bóka núna</Link>
             </Button>
 
             <DropdownMenu>
@@ -91,7 +119,7 @@ export default function Navbar() {
                 <DropdownMenuItem asChild data-testid="menu-dashboard">
                   <Link href="/dashboard" className="flex items-center">
                     <User className="mr-2 h-4 w-4" />
-                    My Bookings
+                    Bókanir mínar
                   </Link>
                 </DropdownMenuItem>
 
@@ -99,7 +127,7 @@ export default function Navbar() {
                   <DropdownMenuItem asChild data-testid="menu-staff">
                     <Link href="/staff" className="flex items-center">
                       <Calendar className="mr-2 h-4 w-4" />
-                      Staff Dashboard
+                      Starfsmannasvæði
                     </Link>
                   </DropdownMenuItem>
                 )}
@@ -108,18 +136,21 @@ export default function Navbar() {
                   <DropdownMenuItem asChild data-testid="menu-admin">
                     <Link href="/admin" className="flex items-center">
                       <Settings className="mr-2 h-4 w-4" />
-                      Admin Dashboard
+                      Stjórnborð
                     </Link>
                   </DropdownMenuItem>
                 )}
 
                 <DropdownMenuSeparator />
-                
-                <DropdownMenuItem asChild data-testid="menu-logout">
-                  <a href="/api/logout" className="flex items-center text-destructive">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Log out
-                  </a>
+
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="flex items-center text-destructive cursor-pointer"
+                  data-testid="menu-logout"
+                  disabled={logoutMutation.isPending}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {logoutMutation.isPending ? "Skrái út..." : "Skrá út"}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

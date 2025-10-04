@@ -5,43 +5,65 @@ A comprehensive booking platform for a breathwork company in Iceland featuring a
 ## 🚀 Features
 
 ### For Clients
-- Browse breathwork services and instructor profiles
-- Book sessions with preferred instructors
-- Secure payment via Stripe (ISK currency, cards, Apple Pay, Google Pay)
-- View upcoming and past bookings
-- Cancel and reschedule bookings
-- Download booking confirmations
-
-### For Staff (Instructors)
-- View assigned bookings
-- Confirm pending bookings
-- Manage weekly availability schedule
-- View and update instructor profile
+- Browse breathwork class templates and schedules
+- Register for classes with one-click booking
+- View upcoming and past class registrations
+- Cancel registrations (24-hour policy)
+- Pay at door or via Stripe *(coming soon)*
+- Receive class reminders and updates
 
 ### For Admins
-- Create and manage breathwork sessions
-- Service management (create, edit, delete, activate/deactivate)
-- Revenue analytics and booking statistics
-- Manage all bookings across instructors
-- View system-wide metrics
+- Create and manage class templates (9D Breathwork, etc.)
+- Schedule classes with date, time, location, capacity
+- View and manage all registrations
+- Revenue analytics and attendance tracking *(in development)*
+- Bulk class creation and management
+
+### Upcoming Features
+- 💳 **Stripe Payment Integration**: Online payment processing with ISK support
+- 💬 **Slack Messaging**: In-app messaging for users and notifications
+- 📧 **Email Notifications**: Automated reminders, confirmations, and updates
+- 📊 **Advanced Analytics**: Revenue tracking, popular class times, attendance trends
+- ⏰ **Waitlist System**: Auto-notify and book when spots open up
 
 ## 🛠 Tech Stack
 
-- **Frontend**: React + TypeScript + Vite + Tailwind CSS + shadcn/ui
+### Core Technologies
+- **Frontend**: React 18 + TypeScript + Vite
 - **Backend**: Express.js + Node.js
-- **Database**: PostgreSQL (Supabase)
-- **Authentication**: Replit Auth (OIDC) - Multi-provider support
-- **Payments**: Stripe Checkout (ISK currency)
-- **ORM**: Drizzle ORM
+- **Database**: PostgreSQL (Supabase) + Drizzle ORM
+- **Authentication**: Supabase Auth (email/password + bcrypt)
+- **Routing**: Wouter (lightweight React router)
+
+### UI & Styling
+- **CSS Framework**: Tailwind CSS
+- **Component Library**: shadcn/ui (Radix UI primitives)
+- **Icons**: Lucide React
+- **Animations**: Framer Motion + tailwindcss-animate
+
+### State & Forms
 - **State Management**: TanStack Query (React Query)
 - **Forms**: React Hook Form + Zod validation
+- **Date Handling**: date-fns
+
+### Payments & Integrations (In Progress)
+- **Payments**: Stripe (ISK currency, zero-decimal) - *Implementation pending*
+- **Messaging**: Slack API integration - *Planning phase*
+- **Email**: To be determined (SendGrid/Resend/AWS SES)
+
+### Development Tools
+- **Build Tool**: Vite
+- **Package Manager**: npm
+- **TypeScript**: 5.6.3
+- **Database Migrations**: Drizzle Kit
+- **Code Quality**: ESLint + Prettier (recommended)
 
 ## 📋 Prerequisites
 
 - Node.js 20.x or higher
-- PostgreSQL database (Supabase recommended)
-- Stripe account
-- VS Code (recommended)
+- PostgreSQL database (Supabase)
+- Stripe account (for payments)
+- Admin account credentials (see setup below)
 
 ## 🏃‍♂️ Getting Started
 
@@ -63,32 +85,27 @@ npm install
 Create a `.env` file in the root directory (use `.env.example` as reference):
 
 ```bash
-# Database Configuration
-DATABASE_URL=postgresql://user:password@host:port/database
+# Database Configuration (Supabase)
+# IMPORTANT: Use Transaction mode pooler (port 6543) for runtime
+DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-1-REGION.pooler.supabase.com:6543/postgres
 
-# Alternative PostgreSQL Connection Details
-PGHOST=your-db-host.supabase.co
-PGPORT=5432
-PGDATABASE=postgres
-PGUSER=postgres
-PGPASSWORD=your-secure-password
-
-# Session Secret (Generate with: openssl rand -base64 32)
-SESSION_SECRET=your-random-32-character-secret-here
+# Supabase Configuration (for project metadata)
+SUPABASE_URL=https://PROJECT_REF.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Stripe Configuration
 STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
 VITE_STRIPE_PUBLIC_KEY=pk_test_your_stripe_publishable_key
 
-# Replit Auth (for OIDC authentication)
-REPL_ID=your-repl-id
-REPLIT_DOMAINS=your-domain.replit.dev
-ISSUER_URL=https://replit.com/oidc
-
 # Application Configuration
 NODE_ENV=development
-PORT=5000
+PORT=3000
 ```
+
+**Important Notes:**
+- Use **Transaction mode pooler** (port `6543`) for `DATABASE_URL` - required for Neon serverless driver
+- For migrations (`npm run db:push`), the pooler URL works fine
+- Password in URL must be **URL-encoded** (e.g., `!` becomes `%21`)
 
 ### 4. Set Up Supabase Database
 
@@ -112,46 +129,78 @@ npm run db:push
 
 This will create all necessary tables in your PostgreSQL database.
 
-### 6. Seed Test Data (Optional)
+### 6. Initialize Application
+
+Run the setup script to configure the default template and superuser:
 
 ```bash
-npm run seed
+node scripts/setup-breathwork.js
 ```
 
-This creates:
-- 4 test users (admin, 2 staff, 1 client)
-- 4 breathwork services
-- 2 instructor profiles
-- Weekly availability schedules
-- 140 test time slots
+This will:
+- Set `maggismari@gmail.com` as superuser
+- Create the default "9D Breathwork Session" template
+- Configure initial application settings
 
-**Test Accounts:**
-- Admin: `admin@nordicbreath.is` (role: admin)
-- Staff 1: `sigridur@nordicbreath.is` (role: staff)
-- Staff 2: `bjorn@nordicbreath.is` (role: staff)
-- Client: `test@example.is` (role: client)
+**Alternative: Create Admin Manually**
 
-### 7. Run Development Server
+```bash
+node scripts/create-admin.js
+```
+
+Or update via database:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'your@email.com';
+```
+
+### 7. Create Test Classes (Optional)
+
+Generate test classes for development:
+
+```bash
+node scripts/create-test-class.js
+```
+
+This creates sample scheduled classes based on the default template.
+
+### 8. Run Development Server
 
 ```bash
 npm run dev
 ```
 
-The application will be available at `http://localhost:5000`
+The application will be available at **`http://localhost:3000`**
+
+**Quick Test:**
+1. Visit http://localhost:3000
+2. Click "Login to Book Session"
+3. Login with admin credentials
+4. You should see the authenticated home page with navbar
 
 ## 🗄 Database Schema
 
-The application uses the following main tables:
+### Class-Based System (Current)
 
-- **users**: Client, staff, and admin accounts
-- **services**: Breathwork session offerings
-- **instructors**: Staff member profiles with bios and certifications
-- **availability**: Instructor weekly schedule templates
-- **timeSlots**: Specific bookable time slots
-- **bookings**: Client reservations and payments
+- **users**: Client and admin accounts with password hashing (bcrypt)
+- **classTemplates**: Class types (9D Breathwork, etc.) with pricing and duration
+- **classes**: Scheduled class instances with date, location, capacity
+- **registrations**: Client bookings with payment and attendance tracking
+
+### Legacy System (For Migration)
+
+- **services**: Breathwork session offerings *(deprecated)*
+- **instructors**: Staff member profiles *(to be integrated)*
+- **availability**: Instructor weekly schedules *(legacy)*
+- **timeSlots**: Specific bookable slots *(legacy)*
+- **bookings**: Old reservation system *(being migrated)*
 - **waitlist**: Queue for fully booked sessions
-- **blockedTimes**: Holidays and instructor unavailability
 - **vouchers**: Discount codes and promotions
+
+**Authentication:**
+- Email/password authentication with bcrypt (10 rounds)
+- HTTP-only cookie sessions (7-day expiration)
+- Secure session management with token-based auth
 
 ## 🔧 VS Code Setup
 
@@ -191,24 +240,35 @@ Create `.vscode/settings.json`:
 }
 ```
 
-## 🔐 Authentication Setup
+## 🔐 Authentication
 
-This application uses **Replit Auth (OIDC)** which is a passwordless multi-provider authentication system.
+This application uses **email/password authentication** with industry-standard security:
 
-### For Development
-
-When developing locally outside of Replit, you'll need to:
-
-1. Set up proper redirect URIs in your OIDC provider
-2. Update `ISSUER_URL`, `REPL_ID`, and `REPLIT_DOMAINS` environment variables
-3. Modify `server/replitAuth.ts` if using a different OIDC provider
+### Security Features
+- ✅ **bcrypt password hashing** (10 rounds, auto-salted)
+- ✅ **HttpOnly cookies** (prevents XSS attacks)
+- ✅ **SameSite=lax** (CSRF protection)
+- ✅ **7-day session expiration** with auto-cleanup
+- ✅ **In-memory session store** (migrate to Redis for production)
 
 ### User Roles
 
 The application supports three roles:
-- **client**: Can book sessions and manage their bookings
-- **staff**: Can view and manage their assigned bookings
-- **admin**: Full access to all features including analytics and session management
+- **client** (default): Can register, book sessions, and manage their bookings
+- **staff**: Can view and manage their assigned bookings, update availability
+- **admin**: Full access to all features including analytics and user management
+
+### Registration Flow
+1. User fills out registration form at `/register`
+2. Password is hashed with bcrypt (never stored in plain text)
+3. Session cookie is created automatically
+4. User is redirected to authenticated home page
+
+### Login Flow
+1. User enters email/password at `/login`
+2. Server verifies password against bcrypt hash
+3. Session token stored in httpOnly cookie
+4. User redirected to role-appropriate dashboard
 
 ## 💳 Stripe Setup
 
@@ -303,8 +363,8 @@ nordic-breath/
 ├── server/                # Express backend
 │   ├── routes.ts          # API endpoints
 │   ├── storage.ts         # Database operations
-│   ├── db.ts              # Database connection
-│   ├── replitAuth.ts      # Authentication setup
+│   ├── db.ts              # Database connection (Neon serverless)
+│   ├── supabaseAuth.ts    # Authentication middleware
 │   ├── seed.ts            # Test data seeding
 │   ├── vite.ts            # Vite middleware
 │   └── index.ts           # Server entry point
@@ -319,21 +379,29 @@ nordic-breath/
 
 ## 🔄 Available Scripts
 
+### Development
 ```bash
-# Development
-npm run dev              # Start development server (frontend + backend)
-
-# Database
-npm run db:push          # Push schema changes to database
-npm run db:studio        # Open Drizzle Studio (visual database manager)
-npm run seed             # Seed database with test data
-
-# Build
-npm run build            # Build for production
-npm run preview          # Preview production build
-
-# Type Checking
+npm run dev              # Start development server (frontend + backend on port 3000)
 npm run check            # TypeScript type checking
+```
+
+### Database
+```bash
+npm run db:push          # Push schema changes to database
+```
+
+### Build & Deploy
+```bash
+npm run build            # Build for production (Vite + esbuild)
+npm run start            # Start production server
+npm run preview          # Preview production build locally
+```
+
+### Utility Scripts
+```bash
+node scripts/setup-breathwork.js    # Initialize app with default template
+node scripts/create-admin.js        # Create/update admin user
+node scripts/create-test-class.js   # Generate test classes
 ```
 
 ## 🚀 Deployment
@@ -365,14 +433,17 @@ The application is already configured for Replit deployment. Simply:
 
 ### Manual Testing Checklist
 
-- [ ] User can sign up/login via Replit Auth
+- [x] User can register new account
+- [x] User can login with email/password
+- [x] User can logout
+- [x] Session persists across page refreshes
+- [x] Admin can access admin dashboard
 - [ ] Client can browse services
 - [ ] Client can book a session
 - [ ] Payment flow completes successfully
 - [ ] Booking appears in client dashboard
 - [ ] Staff can view their bookings
-- [ ] Admin can create new sessions
-- [ ] Admin can view analytics
+- [ ] Admin can create new time slots
 
 ### Test Payment Cards
 
@@ -431,10 +502,28 @@ psql $DATABASE_URL
 
 ### Authentication Not Working
 
-1. Verify `ISSUER_URL` is correct
-2. Check redirect URIs match
-3. Ensure session secret is set
+1. Check `DATABASE_URL` is using **Transaction mode pooler** (port 6543)
+2. Verify password is URL-encoded in connection string
+3. Check server logs for database connection errors
 4. Clear browser cookies and try again
+5. Ensure admin user exists in database
+
+### Port Already in Use
+
+```bash
+# macOS uses port 5000 for AirPlay - use port 3000 instead
+lsof -ti:3000 | xargs kill -9
+```
+
+### Database Connection Errors
+
+```bash
+# Common issues:
+# 1. Using direct connection instead of pooler (must use port 6543)
+# 2. Password not URL-encoded (! should be %21)
+# 3. Wrong region in connection string
+# 4. Supabase project paused (check dashboard)
+```
 
 ## 📚 Additional Resources
 

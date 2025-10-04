@@ -1,8 +1,15 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import Stripe from "stripe";
+import cookieParser from "cookie-parser";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import {
+  isAuthenticated,
+  hashPassword,
+  verifyPassword,
+  createSession,
+  deleteSession,
+  type AuthRequest
+} from "./supabaseAuth";
 import {
   insertServiceSchema,
   insertInstructorSchema,
@@ -12,27 +19,123 @@ import {
   insertWaitlistSchema,
   insertBlockedTimeSchema,
   insertVoucherSchema,
+  insertClassTemplateSchema,
+  insertClassSchema,
+  insertRegistrationSchema,
+  loginSchema,
+  registerSchema,
 } from "@shared/schema";
 import { z } from "zod";
 
-// Initialize Stripe
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
-}
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16",
-});
-
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
+  // Add cookie parser middleware
+  app.use(cookieParser());
 
   // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+  app.post('/api/auth/register', async (req, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      res.json(user);
+      const { email, password, firstName, lastName, phone } = registerSchema.parse(req.body);
+
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ message: "User already exists" });
+      }
+
+      // Hash password
+      const passwordHash = await hashPassword(password);
+
+      // Create user
+      const user = await storage.createUser({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        phone,
+        role: 'client', // Default role
+      });
+
+      // Create session
+      const token = createSession(user.id, user.email);
+
+      // Set cookie
+      res.cookie('session_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      res.json({ user: { id: user.id, email: user.email, role: user.role } });
+    } catch (error) {
+      console.error("Registration error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid input", errors: error.errors });
+      }
+      res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = loginSchema.parse(req.body);
+
+      // Get user by email
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Verify password
+      const isValid = await verifyPassword(password, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Create session
+      const token = createSession(user.id, user.email);
+
+      // Set cookie
+      res.cookie('session_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      res.json({ user: { id: user.id, email: user.email, role: user.role } });
+    } catch (error) {
+      console.error("Login error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid input", errors: error.errors });
+      }
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  app.post('/api/auth/logout', async (req, res) => {
+    try {
+      const token = req.cookies?.session_token;
+      if (token) {
+        deleteSession(token);
+      }
+      res.clearCookie('session_token');
+      res.json({ message: "Logged out successfully" });
+    } catch (error) {
+      console.error("Logout error:", error);
+      res.status(500).json({ message: "Logout failed" });
+    }
+  });
+
+  app.get('/api/auth/user', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      // Don't send password hash to client
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -63,10 +166,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/services', isAuthenticated, async (req: any, res) => {
+  app.post('/api/services', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       // Check if user is admin
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -83,9 +186,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/services/:id', isAuthenticated, async (req: any, res) => {
+  app.put('/api/services/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -99,9 +202,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/services/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/services/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -139,9 +242,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Time slots routes
-  app.get('/api/time-slots/admin', isAuthenticated, async (req: any, res) => {
+  app.get('/api/time-slots/admin', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -189,9 +292,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/time-slots', isAuthenticated, async (req: any, res) => {
+  app.post('/api/time-slots', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin' && user?.role !== 'staff') {
         return res.status(403).json({ message: "Staff or admin access required" });
       }
@@ -205,9 +308,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/time-slots/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/time-slots/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin' && user?.role !== 'staff') {
         return res.status(403).json({ message: "Staff or admin access required" });
       }
@@ -221,9 +324,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Booking routes
-  app.get('/api/bookings', isAuthenticated, async (req: any, res) => {
+  app.get('/api/bookings', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       
       if (user?.role === 'client') {
         const bookings = await storage.getUserBookings(user.id);
@@ -247,14 +350,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/bookings/:id', isAuthenticated, async (req: any, res) => {
+  app.get('/api/bookings/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       
       // Check if user has access to this booking
       if (user?.role === 'client' && booking.bookings.clientId !== user.id) {
@@ -274,9 +377,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/bookings', isAuthenticated, async (req: any, res) => {
+  app.post('/api/bookings', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user!.id;
       const bookingData = insertBookingSchema.parse({
         ...req.body,
         clientId: userId,
@@ -293,14 +396,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/bookings/:id', isAuthenticated, async (req: any, res) => {
+  app.put('/api/bookings/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       
       // Check access rights
       if (user?.role === 'client' && booking.bookings.clientId !== user.id) {
@@ -316,14 +419,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/bookings/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/bookings/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       
       // Check access rights
       if (user?.role === 'client' && booking.bookings.clientId !== user.id) {
@@ -354,9 +457,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reschedule booking
-  app.patch("/api/bookings/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/bookings/:id", isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = req.user!.id;
       const authenticatedUser = await storage.getUser(userId);
       
       if (!authenticatedUser) {
@@ -410,9 +513,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Waitlist routes
-  app.post('/api/waitlist', isAuthenticated, async (req: any, res) => {
+  app.post('/api/waitlist', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user!.id;
       const waitlistData = insertWaitlistSchema.parse({
         ...req.body,
         clientId: userId,
@@ -447,9 +550,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/availability', isAuthenticated, async (req: any, res) => {
+  app.post('/api/availability', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin' && user?.role !== 'staff') {
         return res.status(403).json({ message: "Staff or admin access required" });
       }
@@ -464,9 +567,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Analytics routes
-  app.get('/api/analytics/bookings', isAuthenticated, async (req: any, res) => {
+  app.get('/api/analytics/bookings', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user!.id);
       if (user?.role !== 'admin') {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -483,80 +586,218 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Stripe payment routes
-  app.post("/api/create-payment-intent", isAuthenticated, async (req: any, res) => {
+  // NEW: Class template routes
+  app.get('/api/class-templates', async (req, res) => {
     try {
-      const { amount, currency = "isk" } = req.body;
-      
-      if (!amount || amount <= 0) {
-        return res.status(400).json({ message: "Valid amount is required" });
-      }
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Convert to øre/cents
-        currency: currency.toLowerCase(),
-        payment_method_types: ['card'],
-        metadata: {
-          userId: req.user.claims.sub,
-        },
-      });
-
-      res.json({ clientSecret: paymentIntent.client_secret });
-    } catch (error: any) {
-      console.error("Error creating payment intent:", error);
-      res.status(500).json({ message: "Error creating payment intent: " + error.message });
+      const templates = await storage.getClassTemplates();
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching class templates:", error);
+      res.status(500).json({ message: "Failed to fetch class templates" });
     }
   });
 
-  // Stripe webhook handler
-  app.post('/api/stripe/webhook', async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    let event;
-
+  app.post('/api/class-templates', isAuthenticated, async (req: AuthRequest, res) => {
     try {
-      event = stripe.webhooks.constructEvent(req.rawBody, sig as string, process.env.STRIPE_WEBHOOK_SECRET!);
-    } catch (err: any) {
-      console.error('Webhook signature verification failed:', err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
+      const user = await storage.getUser(req.user!.id);
 
-    try {
-      switch (event.type) {
-        case 'payment_intent.succeeded':
-          const paymentIntent = event.data.object;
-          console.log('Payment succeeded:', paymentIntent.id);
-          
-          // Update booking payment status
-          if (paymentIntent.metadata?.bookingId) {
-            await storage.updateBooking(paymentIntent.metadata.bookingId, {
-              paymentStatus: 'paid',
-              stripePaymentIntentId: paymentIntent.id,
-              status: 'confirmed',
-            });
-          }
-          break;
-
-        case 'payment_intent.payment_failed':
-          const failedPayment = event.data.object;
-          console.log('Payment failed:', failedPayment.id);
-          
-          // Update booking payment status
-          if (failedPayment.metadata?.bookingId) {
-            await storage.updateBooking(failedPayment.metadata.bookingId, {
-              paymentStatus: 'pending',
-              status: 'pending',
-            });
-          }
-          break;
-
-        default:
-          console.log(`Unhandled event type ${event.type}`);
+      // Only superusers can create custom templates
+      if (!user?.isSuperuser) {
+        return res.status(403).json({ message: "Only superusers can create custom templates" });
       }
 
-      res.json({ received: true });
+      const validated = insertClassTemplateSchema.parse(req.body);
+      const template = await storage.createClassTemplate({
+        ...validated,
+        createdBy: user.id,
+      });
+
+      res.json(template);
     } catch (error) {
-      console.error('Error handling webhook:', error);
-      res.status(500).json({ message: 'Webhook handler failed' });
+      console.error("Error creating class template:", error);
+      res.status(500).json({ message: "Failed to create class template" });
+    }
+  });
+
+  // NEW: Class routes (public + admin)
+  app.get('/api/classes/upcoming', async (req, res) => {
+    try {
+      const classes = await storage.getUpcomingClasses();
+      res.json(classes);
+    } catch (error) {
+      console.error("Error fetching upcoming classes:", error);
+      res.status(500).json({ message: "Failed to fetch upcoming classes" });
+    }
+  });
+
+  app.get('/api/classes/:id', async (req, res) => {
+    try {
+      const classItem = await storage.getClass(req.params.id);
+      if (!classItem) {
+        return res.status(404).json({ message: "Class not found" });
+      }
+      res.json(classItem);
+    } catch (error) {
+      console.error("Error fetching class:", error);
+      res.status(500).json({ message: "Failed to fetch class" });
+    }
+  });
+
+  app.post('/api/classes', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (user?.role !== 'admin') {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validated = insertClassSchema.parse(req.body);
+      const newClass = await storage.createClass(validated);
+
+      res.json(newClass);
+    } catch (error) {
+      console.error("Error creating class:", error);
+      res.status(500).json({ message: "Failed to create class" });
+    }
+  });
+
+  // NEW: Registration routes
+  app.get('/api/registrations/my', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const registrations = await storage.getUserRegistrations(req.user!.id);
+      res.json(registrations);
+    } catch (error) {
+      console.error("Error fetching user registrations:", error);
+      res.status(500).json({ message: "Failed to fetch registrations" });
+    }
+  });
+
+  app.get('/api/registrations/class/:classId', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (user?.role !== 'admin') {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const registrations = await storage.getClassRegistrations(req.params.classId);
+      res.json(registrations);
+    } catch (error) {
+      console.error("Error fetching class registrations:", error);
+      res.status(500).json({ message: "Failed to fetch registrations" });
+    }
+  });
+
+  app.post('/api/registrations', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      console.log('Registration request body:', req.body);
+      console.log('User from session:', req.user);
+      const validated = insertRegistrationSchema.parse(req.body);
+      console.log('Validated data:', validated);
+
+      // Check if class is full
+      const classItem = await storage.getClass(validated.classId);
+      if (!classItem) {
+        return res.status(404).json({ message: "Class not found" });
+      }
+
+      if (classItem.currentBookings >= classItem.maxCapacity) {
+        return res.status(400).json({ message: "Class is full" });
+      }
+
+      // Generate unique payment reference (booking number)
+      const paymentReference = `BW${Date.now().toString(36).toUpperCase()}`;
+
+      // Set payment deadline to 24 hours from now
+      const paymentDeadline = new Date();
+      paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+
+      const registrationData = {
+        ...validated,
+        clientId: req.user!.id,
+        paymentReference,
+        paymentDeadline,
+        status: 'confirmed', // Spot is reserved immediately
+      };
+      console.log('Creating registration with data:', registrationData);
+
+      const registration = await storage.createRegistration(registrationData);
+
+      res.json(registration);
+    } catch (error) {
+      console.error("Error creating registration:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid registration data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create registration" });
+    }
+  });
+
+  app.patch('/api/registrations/:id/cancel', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const registration = await storage.cancelRegistration(req.params.id);
+      res.json(registration);
+    } catch (error) {
+      console.error("Error cancelling registration:", error);
+      res.status(500).json({ message: "Failed to cancel registration" });
+    }
+  });
+
+  // Get single registration with details (for success page)
+  app.get('/api/registrations/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const registration = await storage.getRegistrationWithDetails(req.params.id);
+
+      if (!registration) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      // Verify ownership or admin
+      const user = await storage.getUser(req.user!.id);
+      if (registration.clientId !== req.user!.id && user?.role !== 'admin') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(registration);
+    } catch (error) {
+      console.error("Error fetching registration:", error);
+      res.status(500).json({ message: "Failed to fetch registration" });
+    }
+  });
+
+  // Confirm transfer (user clicked checkbox)
+  app.patch('/api/registrations/:id/confirm-transfer', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const registration = await storage.getRegistration(req.params.id);
+
+      if (!registration) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      // Verify ownership
+      if (registration.clientId !== req.user!.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updateRegistration(req.params.id, {
+        userConfirmedTransfer: true,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error confirming transfer:", error);
+      res.status(500).json({ message: "Failed to confirm transfer" });
+    }
+  });
+
+  // Payment information routes
+  app.get('/api/payment-info', async (req, res) => {
+    try {
+      const paymentInfo = await storage.getActivePaymentInfo();
+      res.json(paymentInfo || []);
+    } catch (error) {
+      console.error("Error fetching payment info:", error);
+      res.status(500).json({ message: "Failed to fetch payment information" });
     }
   });
 

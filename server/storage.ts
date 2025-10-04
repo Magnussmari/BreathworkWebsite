@@ -8,6 +8,9 @@ import {
   waitlist,
   blockedTimes,
   vouchers,
+  classTemplates,
+  classes,
+  registrations,
   type User,
   type UpsertUser,
   type Service,
@@ -26,13 +29,21 @@ import {
   type InsertBlockedTime,
   type Voucher,
   type InsertVoucher,
+  type ClassTemplate,
+  type InsertClassTemplate,
+  type Class,
+  type InsertClass,
+  type Registration,
+  type InsertRegistration,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc, asc, sql, count, inArray } from "drizzle-orm";
 
 export interface IStorage {
-  // User operations (mandatory for Replit Auth)
+  // User operations
   getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: Partial<User>): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserStripeInfo(id: string, stripeInfo: { stripeCustomerId?: string; stripeSubscriptionId?: string }): Promise<User>;
 
@@ -101,12 +112,45 @@ export interface IStorage {
     completedBookings: number;
     cancelledBookings: number;
   }>;
+
+  // NEW: Simplified class-based operations
+  getClassTemplates(): Promise<ClassTemplate[]>;
+  getClassTemplate(id: string): Promise<ClassTemplate | undefined>;
+  getDefaultClassTemplate(): Promise<ClassTemplate | undefined>;
+  createClassTemplate(template: InsertClassTemplate): Promise<ClassTemplate>;
+
+  getUpcomingClasses(): Promise<(Class & { template: ClassTemplate })[]>;
+  getClass(id: string): Promise<(Class & { template: ClassTemplate }) | undefined>;
+  createClass(classData: InsertClass): Promise<Class>;
+  updateClass(id: string, classData: Partial<InsertClass>): Promise<Class>;
+
+  getUserRegistrations(userId: string): Promise<(Registration & { class: Class & { template: ClassTemplate } })[]>;
+  getClassRegistrations(classId: string): Promise<(Registration & { client: User })[]>;
+  getRegistration(id: string): Promise<Registration | undefined>;
+  createRegistration(registration: InsertRegistration): Promise<Registration>;
+  updateRegistration(id: string, registration: Partial<InsertRegistration>): Promise<Registration>;
+  getRegistrationWithDetails(id: string): Promise<(Registration & { class: Class & { template: ClassTemplate } }) | undefined>;
+  cancelRegistration(id: string): Promise<Registration>;
+  deleteExpiredRegistrations(): Promise<number>; // Returns count of deleted registrations
+
+  // Payment information
+  getActivePaymentInfo(): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(userData: Partial<User>): Promise<User> {
+    const [user] = await db.insert(users).values(userData as any).returning();
     return user;
   }
 
@@ -598,6 +642,220 @@ export class DatabaseStorage implements IStorage {
       completedBookings: 0,
       cancelledBookings: 0,
     };
+  }
+
+  // NEW: Class template operations
+  async getClassTemplates(): Promise<ClassTemplate[]> {
+    return await db.select().from(classTemplates).where(eq(classTemplates.isActive, true)).orderBy(desc(classTemplates.isDefault), asc(classTemplates.name));
+  }
+
+  async getClassTemplate(id: string): Promise<ClassTemplate | undefined> {
+    const [template] = await db.select().from(classTemplates).where(eq(classTemplates.id, id));
+    return template;
+  }
+
+  async getDefaultClassTemplate(): Promise<ClassTemplate | undefined> {
+    const [template] = await db.select().from(classTemplates).where(eq(classTemplates.isDefault, true));
+    return template;
+  }
+
+  async createClassTemplate(template: InsertClassTemplate): Promise<ClassTemplate> {
+    const [newTemplate] = await db.insert(classTemplates).values(template).returning();
+    return newTemplate;
+  }
+
+  // NEW: Class operations
+  async getUpcomingClasses(): Promise<(Class & { template: ClassTemplate })[]> {
+    const results = await db
+      .select()
+      .from(classes)
+      .innerJoin(classTemplates, eq(classes.templateId, classTemplates.id))
+      .where(and(
+        eq(classes.status, 'upcoming'),
+        gte(classes.scheduledDate, new Date())
+      ))
+      .orderBy(asc(classes.scheduledDate));
+
+    return results.map(row => ({
+      ...row.classes,
+      template: row.class_templates
+    }));
+  }
+
+  async getClass(id: string): Promise<(Class & { template: ClassTemplate }) | undefined> {
+    const results = await db
+      .select()
+      .from(classes)
+      .innerJoin(classTemplates, eq(classes.templateId, classTemplates.id))
+      .where(eq(classes.id, id));
+
+    if (results.length === 0) return undefined;
+
+    return {
+      ...results[0].classes,
+      template: results[0].class_templates
+    };
+  }
+
+  async createClass(classData: InsertClass): Promise<Class> {
+    const [newClass] = await db.insert(classes).values(classData).returning();
+    return newClass;
+  }
+
+  async updateClass(id: string, classData: Partial<InsertClass>): Promise<Class> {
+    const [updatedClass] = await db
+      .update(classes)
+      .set({ ...classData, updatedAt: new Date() })
+      .where(eq(classes.id, id))
+      .returning();
+    return updatedClass;
+  }
+
+  // NEW: Registration operations
+  async getUserRegistrations(userId: string): Promise<(Registration & { class: Class & { template: ClassTemplate } })[]> {
+    const results = await db
+      .select()
+      .from(registrations)
+      .innerJoin(classes, eq(registrations.classId, classes.id))
+      .innerJoin(classTemplates, eq(classes.templateId, classTemplates.id))
+      .where(eq(registrations.clientId, userId))
+      .orderBy(desc(classes.scheduledDate));
+
+    return results.map(row => ({
+      ...row.registrations,
+      class: {
+        ...row.classes,
+        template: row.class_templates
+      }
+    }));
+  }
+
+  async getClassRegistrations(classId: string): Promise<(Registration & { client: User })[]> {
+    const results = await db
+      .select()
+      .from(registrations)
+      .innerJoin(users, eq(registrations.clientId, users.id))
+      .where(eq(registrations.classId, classId))
+      .orderBy(asc(registrations.createdAt));
+
+    return results.map(row => ({
+      ...row.registrations,
+      client: row.users
+    }));
+  }
+
+  async getRegistration(id: string): Promise<Registration | undefined> {
+    const [registration] = await db
+      .select()
+      .from(registrations)
+      .where(eq(registrations.id, id))
+      .limit(1);
+    return registration;
+  }
+
+  async createRegistration(registration: InsertRegistration): Promise<Registration> {
+    const [newRegistration] = await db.insert(registrations).values(registration).returning();
+
+    // Increment current bookings count
+    await db
+      .update(classes)
+      .set({ currentBookings: sql`${classes.currentBookings} + 1` })
+      .where(eq(classes.id, registration.classId));
+
+    return newRegistration;
+  }
+
+  async updateRegistration(id: string, registration: Partial<InsertRegistration>): Promise<Registration> {
+    const [updatedRegistration] = await db
+      .update(registrations)
+      .set({ ...registration, updatedAt: new Date() })
+      .where(eq(registrations.id, id))
+      .returning();
+    return updatedRegistration;
+  }
+
+  async cancelRegistration(id: string): Promise<Registration> {
+    const [registration] = await db
+      .update(registrations)
+      .set({ status: 'cancelled', updatedAt: new Date() })
+      .where(eq(registrations.id, id))
+      .returning();
+
+    // Decrement current bookings count
+    await db
+      .update(classes)
+      .set({ currentBookings: sql`${classes.currentBookings} - 1` })
+      .where(eq(classes.id, registration.classId));
+
+    return registration;
+  }
+
+  async getRegistrationWithDetails(id: string): Promise<(Registration & { class: Class & { template: ClassTemplate } }) | undefined> {
+    const result = await db
+      .select()
+      .from(registrations)
+      .leftJoin(classes, eq(registrations.classId, classes.id))
+      .leftJoin(classTemplates, eq(classes.templateId, classTemplates.id))
+      .where(eq(registrations.id, id))
+      .limit(1);
+
+    if (!result.length || !result[0].classes || !result[0].class_templates) {
+      return undefined;
+    }
+
+    return {
+      ...result[0].registrations,
+      class: {
+        ...result[0].classes,
+        template: result[0].class_templates,
+      },
+    };
+  }
+
+  async getActivePaymentInfo(): Promise<any[]> {
+    const { companyPaymentInfo } = await import("@shared/schema");
+    const result = await db
+      .select()
+      .from(companyPaymentInfo)
+      .where(eq(companyPaymentInfo.isActive, true));
+    return result;
+  }
+
+  async deleteExpiredRegistrations(): Promise<number> {
+    const now = new Date();
+
+    // Find expired registrations (payment_deadline passed and not verified by admin)
+    const expiredRegistrations = await db
+      .select()
+      .from(registrations)
+      .where(
+        and(
+          lte(registrations.paymentDeadline, now),
+          eq(registrations.adminVerifiedPayment, false),
+          eq(registrations.status, 'confirmed')
+        )
+      );
+
+    if (expiredRegistrations.length === 0) {
+      return 0;
+    }
+
+    // Delete expired registrations
+    const deletedIds = expiredRegistrations.map(r => r.id);
+    await db
+      .delete(registrations)
+      .where(inArray(registrations.id, deletedIds));
+
+    // Decrement class bookings
+    for (const reg of expiredRegistrations) {
+      await db
+        .update(classes)
+        .set({ currentBookings: sql`${classes.currentBookings} - 1` })
+        .where(eq(classes.id, reg.classId));
+    }
+
+    console.log(`Deleted ${expiredRegistrations.length} expired registrations`);
+    return expiredRegistrations.length;
   }
 }
 

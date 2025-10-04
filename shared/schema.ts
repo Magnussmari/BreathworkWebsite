@@ -15,43 +15,62 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
-// Session storage table for Replit Auth
-export const sessions = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)],
-);
-
-// User storage table for Replit Auth
+// Users table with email/password authentication
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
+  email: varchar("email").unique().notNull(),
+  passwordHash: varchar("password_hash").notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: varchar("role", { enum: ["client", "staff", "admin"] }).default("client").notNull(),
+  role: varchar("role", { enum: ["client", "admin"] }).default("client").notNull(),
+  isSuperuser: boolean("is_superuser").default(false).notNull(),
   phone: varchar("phone"),
-  stripeCustomerId: varchar("stripe_customer_id"),
-  stripeSubscriptionId: varchar("stripe_subscription_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Services offered by the company
-export const services = pgTable("services", {
+// Class templates (9D Breathwork default + custom templates)
+export const classTemplates = pgTable("class_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name").notNull(),
   description: text("description").notNull(),
   duration: integer("duration").notNull(), // in minutes
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(), // in ISK
-  maxCapacity: integer("max_capacity").default(1), // 1 for private, >1 for group
+  price: integer("price").notNull(), // in ISK (whole numbers, zero-decimal currency)
+  maxCapacity: integer("max_capacity").default(15).notNull(),
+  isDefault: boolean("is_default").default(false).notNull(), // true for 9D Breathwork
+  isActive: boolean("is_active").default(true).notNull(),
+  createdBy: varchar("created_by").references(() => users.id), // null for defaults, user id for custom
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Scheduled classes (instances of templates)
+export const classes = pgTable("classes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => classTemplates.id).notNull(),
+  scheduledDate: timestamp("scheduled_date").notNull(),
+  location: varchar("location").notNull(),
+  maxCapacity: integer("max_capacity").notNull(), // can override template default
+  customPrice: integer("custom_price"), // optional custom price (ISK), overrides template price
+  currentBookings: integer("current_bookings").default(0).notNull(),
+  status: varchar("status", { enum: ["upcoming", "completed", "cancelled"] }).default("upcoming").notNull(),
+  instructorNotes: text("instructor_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Keep services table for backward compatibility (will be migrated)
+export const services = pgTable("services", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description").notNull(),
+  duration: integer("duration").notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  maxCapacity: integer("max_capacity").default(1),
   isActive: boolean("is_active").default(true),
   prerequisites: text("prerequisites"),
-  category: varchar("category"), // e.g., "beginner", "advanced", "healing", "private"
+  category: varchar("category"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -91,7 +110,26 @@ export const timeSlots = pgTable("time_slots", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Client bookings
+// Client registrations (simplified bookings for classes)
+export const registrations = pgTable("registrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  classId: varchar("class_id").references(() => classes.id).notNull(),
+  clientId: varchar("client_id").references(() => users.id).notNull(),
+  status: varchar("status", { enum: ["pending", "confirmed", "cancelled"] }).default("confirmed").notNull(),
+  paymentStatus: varchar("payment_status", { enum: ["pending", "paid", "refunded"] }).default("pending").notNull(),
+  paymentAmount: integer("payment_amount").notNull(), // in ISK
+  paymentMethod: varchar("payment_method", { enum: ["bank_transfer", "cash", "card_at_door"] }).default("bank_transfer").notNull(),
+  paymentReference: varchar("payment_reference"), // Booking number for bank transfer reference
+  userConfirmedTransfer: boolean("user_confirmed_transfer").default(false).notNull(), // User checked "I have transferred"
+  adminVerifiedPayment: boolean("admin_verified_payment").default(false).notNull(), // Admin verified payment in bank
+  paymentDeadline: timestamp("payment_deadline"), // 24 hours from booking
+  attended: boolean("attended").default(false).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Keep old bookings table for backward compatibility
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").references(() => users.id).notNull(),
@@ -102,9 +140,8 @@ export const bookings = pgTable("bookings", {
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   depositAmount: decimal("deposit_amount", { precision: 10, scale: 2 }),
   paymentStatus: varchar("payment_status", { enum: ["pending", "partial", "paid", "refunded"] }).default("pending"),
-  stripePaymentIntentId: varchar("stripe_payment_intent_id"),
   notes: text("notes"),
-  customFormData: jsonb("custom_form_data"), // Store dynamic form responses
+  customFormData: jsonb("custom_form_data"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -129,6 +166,21 @@ export const blockedTimes = pgTable("blocked_times", {
   reason: varchar("reason").notNull(),
   isRecurring: boolean("is_recurring").default(false),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Company payment information (for bank transfers)
+export const companyPaymentInfo = pgTable("company_payment_info", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyName: varchar("company_name").notNull().default("Breathwork EHF"),
+  companyId: varchar("company_id").notNull().default(""), // Kennitala
+  bankName: varchar("bank_name").notNull(),
+  accountNumber: varchar("account_number").notNull(), // Format: 0123-26-004567
+  iban: varchar("iban"),
+  swiftBic: varchar("swift_bic"),
+  instructions: text("instructions"), // Additional payment instructions in Icelandic
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Gift vouchers and promotional codes
@@ -220,8 +272,46 @@ export const waitlistRelations = relations(waitlist, ({ one }) => ({
   }),
 }));
 
-// Insert schemas
+// New simplified schemas
+export const insertClassTemplateSchema = createInsertSchema(classTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true
+});
+
+export const insertClassSchema = createInsertSchema(classes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  currentBookings: true
+}).extend({
+  scheduledDate: z.string().or(z.date()).transform((val) =>
+    typeof val === 'string' ? new Date(val) : val
+  ),
+});
+
+export const insertRegistrationSchema = createInsertSchema(registrations).omit({
+  id: true,
+  clientId: true,  // Comes from authenticated user session
+  createdAt: true,
+  updatedAt: true
+});
+
+// User schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
+export const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+export const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  phone: z.string().optional(),
+});
+
+// Old schemas (backward compatibility)
 export const insertServiceSchema = createInsertSchema(services).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertInstructorSchema = createInsertSchema(instructors).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, updatedAt: true });
@@ -233,11 +323,22 @@ export const insertTimeSlotSchema = createInsertSchema(timeSlots).omit({ id: tru
 export const insertWaitlistSchema = createInsertSchema(waitlist).omit({ id: true, createdAt: true });
 export const insertBlockedTimeSchema = createInsertSchema(blockedTimes).omit({ id: true, createdAt: true });
 export const insertVoucherSchema = createInsertSchema(vouchers).omit({ id: true, createdAt: true });
+export const insertCompanyPaymentInfoSchema = createInsertSchema(companyPaymentInfo).omit({ id: true, createdAt: true, updatedAt: true });
 
-// Types
+// New simplified types
+export type ClassTemplate = typeof classTemplates.$inferSelect;
+export type InsertClassTemplate = z.infer<typeof insertClassTemplateSchema>;
+export type Class = typeof classes.$inferSelect;
+export type InsertClass = z.infer<typeof insertClassSchema>;
+export type Registration = typeof registrations.$inferSelect;
+export type InsertRegistration = z.infer<typeof insertRegistrationSchema>;
+
+// User types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+// Old types (backward compatibility)
 export type Service = typeof services.$inferSelect;
 export type InsertService = z.infer<typeof insertServiceSchema>;
 export type Instructor = typeof instructors.$inferSelect;
@@ -254,3 +355,5 @@ export type BlockedTime = typeof blockedTimes.$inferSelect;
 export type InsertBlockedTime = z.infer<typeof insertBlockedTimeSchema>;
 export type Voucher = typeof vouchers.$inferSelect;
 export type InsertVoucher = z.infer<typeof insertVoucherSchema>;
+export type CompanyPaymentInfo = typeof companyPaymentInfo.$inferSelect;
+export type InsertCompanyPaymentInfo = z.infer<typeof insertCompanyPaymentInfoSchema>;
