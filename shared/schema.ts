@@ -115,7 +115,7 @@ export const registrations = pgTable("registrations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   classId: varchar("class_id").references(() => classes.id).notNull(),
   clientId: varchar("client_id").references(() => users.id).notNull(),
-  status: varchar("status", { enum: ["pending", "confirmed", "cancelled"] }).default("confirmed").notNull(),
+  status: varchar("status", { enum: ["pending", "confirmed", "cancelled", "reserved"] }).default("reserved").notNull(),
   paymentStatus: varchar("payment_status", { enum: ["pending", "paid", "refunded"] }).default("pending").notNull(),
   paymentAmount: integer("payment_amount").notNull(), // in ISK
   paymentMethod: varchar("payment_method", { enum: ["bank_transfer", "cash", "card_at_door"] }).default("bank_transfer").notNull(),
@@ -123,6 +123,7 @@ export const registrations = pgTable("registrations", {
   userConfirmedTransfer: boolean("user_confirmed_transfer").default(false).notNull(), // User checked "I have transferred"
   adminVerifiedPayment: boolean("admin_verified_payment").default(false).notNull(), // Admin verified payment in bank
   paymentDeadline: timestamp("payment_deadline"), // 24 hours from booking
+  reservedUntil: timestamp("reserved_until"), // 5 minutes temporary hold
   attended: boolean("attended").default(false).notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),

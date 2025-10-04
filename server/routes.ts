@@ -705,6 +705,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Step 1: Reserve a spot (5 minute hold)
+  app.post('/api/registrations/reserve', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const { classId, paymentAmount } = req.body;
+
+      // Check if class exists and has space
+      const classItem = await storage.getClass(classId);
+      if (!classItem) {
+        return res.status(404).json({ message: "Class not found" });
+      }
+
+      if (classItem.currentBookings >= classItem.maxCapacity) {
+        return res.status(400).json({ message: "Class is full" });
+      }
+
+      // Generate unique payment reference
+      const paymentReference = `BW${Date.now().toString(36).toUpperCase()}`;
+
+      // Set reservation deadline (5 minutes)
+      const reservedUntil = new Date();
+      reservedUntil.setMinutes(reservedUntil.getMinutes() + 5);
+
+      // Set payment deadline (24 hours)
+      const paymentDeadline = new Date();
+      paymentDeadline.setHours(paymentDeadline.getHours() + 24);
+
+      const registrationData = {
+        classId,
+        clientId: req.user!.id,
+        paymentAmount,
+        paymentStatus: 'pending' as const,
+        paymentMethod: 'bank_transfer' as const,
+        paymentReference,
+        paymentDeadline,
+        reservedUntil,
+        status: 'reserved' as const, // Temporary reservation
+      };
+
+      const registration = await storage.createRegistration(registrationData);
+
+      res.json(registration);
+    } catch (error) {
+      console.error("Error creating reservation:", error);
+      res.status(500).json({ message: "Failed to create reservation" });
+    }
+  });
+
+  // Step 2: Confirm registration after user confirms transfer
+  app.patch('/api/registrations/:id/confirm', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const registration = await storage.getRegistration(req.params.id);
+
+      if (!registration) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      if (registration.clientId !== req.user!.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      // Check if reservation hasn't expired
+      if (registration.reservedUntil && new Date() > new Date(registration.reservedUntil)) {
+        return res.status(400).json({ message: "Reservation has expired" });
+      }
+
+      // Update to confirmed status and mark transfer as confirmed by user
+      const updated = await storage.updateRegistration(req.params.id, {
+        status: 'confirmed',
+        userConfirmedTransfer: true,
+      });
+
+      // Send confirmation email
+      try {
+        const user = await storage.getUser(req.user!.id);
+        const classItem = await storage.getClass(registration.classId);
+        const paymentInfoList = await storage.getActivePaymentInfo();
+        const paymentInfo = paymentInfoList[0];
+
+        if (user && classItem && paymentInfo) {
+          await sendRegistrationConfirmation({
+            registration: updated,
+            classItem,
+            user,
+            paymentInfo: {
+              companyName: paymentInfo.companyName,
+              bankName: paymentInfo.bankName,
+              accountNumber: paymentInfo.accountNumber,
+              instructions: paymentInfo.instructions || '',
+            },
+          });
+        }
+      } catch (emailError) {
+        console.error('Failed to send confirmation email:', emailError);
+        // Don't fail the registration if email fails
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error confirming registration:", error);
+      res.status(500).json({ message: "Failed to confirm registration" });
+    }
+  });
+
+  // OLD: Direct registration (kept for backward compatibility)
   app.post('/api/registrations', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       console.log('Registration request body:', req.body);
