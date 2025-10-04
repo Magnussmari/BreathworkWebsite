@@ -119,6 +119,7 @@ export interface IStorage {
   getDefaultClassTemplate(): Promise<ClassTemplate | undefined>;
   createClassTemplate(template: InsertClassTemplate): Promise<ClassTemplate>;
 
+  getAllClasses(): Promise<(Class & { template: ClassTemplate })[]>;
   getUpcomingClasses(): Promise<(Class & { template: ClassTemplate })[]>;
   getClass(id: string): Promise<(Class & { template: ClassTemplate }) | undefined>;
   createClass(classData: InsertClass): Promise<Class>;
@@ -665,6 +666,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   // NEW: Class operations
+  async getAllClasses(): Promise<(Class & { template: ClassTemplate })[]> {
+    const results = await db
+      .select()
+      .from(classes)
+      .innerJoin(classTemplates, eq(classes.templateId, classTemplates.id))
+      .orderBy(desc(classes.scheduledDate));
+
+    return results.map(row => ({
+      ...row.classes,
+      template: row.class_templates
+    }));
+  }
+
   async getUpcomingClasses(): Promise<(Class & { template: ClassTemplate })[]> {
     const results = await db
       .select()

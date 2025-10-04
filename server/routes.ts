@@ -620,6 +620,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // NEW: Class routes (public + admin)
+  app.get('/api/classes/all', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (user?.role !== 'admin') {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const classes = await storage.getAllClasses();
+      res.json(classes);
+    } catch (error) {
+      console.error("Error fetching all classes:", error);
+      res.status(500).json({ message: "Failed to fetch all classes" });
+    }
+  });
+
   app.get('/api/classes/upcoming', async (req, res) => {
     try {
       const classes = await storage.getUpcomingClasses();
