@@ -111,3 +111,12 @@ export function getSession(token: string): JWTPayload | null {
     return null;
   }
 }
+
+// Verify session - returns decoded payload with { id } instead of { userId }
+export function verifySession(token: string): { id: string; email: string } {
+  const decoded = jwt.verify(token, JWT_SECRET!) as JWTPayload;
+  return {
+    id: decoded.userId,
+    email: decoded.email,
+  };
+}

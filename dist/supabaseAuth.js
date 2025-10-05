@@ -949,11 +949,19 @@ function getSession(token) {
     return null;
   }
 }
+function verifySession(token) {
+  const decoded = jwt.verify(token, JWT_SECRET);
+  return {
+    id: decoded.userId,
+    email: decoded.email
+  };
+}
 export {
   createSession,
   deleteSession,
   getSession,
   hashPassword,
   isAuthenticated,
-  verifyPassword
+  verifyPassword,
+  verifySession
 };
