@@ -88,10 +88,12 @@ export default function AdminDashboard() {
   const [editingService, setEditingService] = useState<any>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [classDialogOpen, setClassDialogOpen] = useState(false);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [registrationsDialogOpen, setRegistrationsDialogOpen] = useState(false);
 
-  // Redirect if not admin
+  // Redirect if not admin or superuser
   useEffect(() => {
-    if (user && user.role !== 'admin') {
+    if (user && user.role !== 'admin' && !user.isSuperuser) {
       toast({
         title: "Access Denied",
         description: "You don't have permission to access the admin dashboard.",
@@ -125,7 +127,7 @@ export default function AdminDashboard() {
   });
 
   const { data: allBookings, isLoading: bookingsLoading, error: bookingsError } = useQuery({
-    queryKey: ['/api/bookings', 'admin'],
+    queryKey: ['/api/bookings'],
     retry: false,
   });
 
@@ -150,6 +152,23 @@ export default function AdminDashboard() {
     retry: false,
   });
 
+  // Invoice queries
+  const { data: customerInvoices } = useQuery({
+    queryKey: ['/api/invoices/customer'],
+    retry: false,
+  });
+
+  const { data: companyInvoices } = useQuery({
+    queryKey: ['/api/invoices/company'],
+    retry: false,
+  });
+
+  // Users query
+  const { data: allUsers } = useQuery({
+    queryKey: ['/api/users'],
+    retry: false,
+  });
+
   const { data: classTemplates } = useQuery({
     queryKey: ['/api/class-templates'],
     retry: false,
@@ -164,6 +183,20 @@ export default function AdminDashboard() {
       if (!response.ok) throw new Error('Failed to fetch classes');
       return response.json();
     },
+    retry: false,
+  });
+
+  const { data: selectedClassRegistrations } = useQuery({
+    queryKey: ['/api/classes', selectedClassId, 'registrations'],
+    queryFn: async () => {
+      if (!selectedClassId) return null;
+      const response = await fetch(`/api/classes/${selectedClassId}/registrations`, {
+        credentials: "include"
+      });
+      if (!response.ok) throw new Error('Failed to fetch registrations');
+      return response.json();
+    },
+    enabled: !!selectedClassId && registrationsDialogOpen,
     retry: false,
   });
 
@@ -348,7 +381,7 @@ export default function AdminDashboard() {
   }
 
   // Access denied for non-admin users
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'admin' && !user?.isSuperuser) {
     return (
       <div className="min-h-screen pt-16 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -448,10 +481,10 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-serif text-3xl font-bold text-foreground mb-2" data-testid="admin-dashboard-title">
-              Admin Dashboard
+              Stjórnborð
             </h1>
             <p className="text-muted-foreground" data-testid="admin-dashboard-subtitle">
-              Manage your breathwork platform, services, and bookings
+              Stjórnaðu öndunarverkefninu þínu, þjónustu og bókunum
             </p>
           </div>
         </div>
@@ -466,7 +499,7 @@ export default function AdminDashboard() {
                   <div className="text-2xl font-bold text-foreground" data-testid="stat-total-bookings">
                     {analytics?.totalBookings || 0}
                   </div>
-                  <div className="text-sm text-muted-foreground">Total Bookings</div>
+                  <div className="text-sm text-muted-foreground">Heildar bókanir</div>
                 </div>
               </div>
             </CardContent>
@@ -480,7 +513,7 @@ export default function AdminDashboard() {
                   <div className="text-2xl font-bold text-foreground" data-testid="stat-revenue">
                     {analytics?.totalRevenue ? `${analytics.totalRevenue} ISK` : '0 ISK'}
                   </div>
-                  <div className="text-sm text-muted-foreground">Total Revenue</div>
+                  <div className="text-sm text-muted-foreground">Heildartekjur</div>
                 </div>
               </div>
             </CardContent>
@@ -494,7 +527,7 @@ export default function AdminDashboard() {
                   <div className="text-2xl font-bold text-foreground" data-testid="stat-today-bookings">
                     {todayBookings.length}
                   </div>
-                  <div className="text-sm text-muted-foreground">Today's Bookings</div>
+                  <div className="text-sm text-muted-foreground">Bókanir í dag</div>
                 </div>
               </div>
             </CardContent>
@@ -508,7 +541,7 @@ export default function AdminDashboard() {
                   <div className="text-2xl font-bold text-foreground" data-testid="stat-pending">
                     {pendingBookings.length}
                   </div>
-                  <div className="text-sm text-muted-foreground">Pending Approval</div>
+                  <div className="text-sm text-muted-foreground">Bíður samþykkis</div>
                 </div>
               </div>
             </CardContent>
@@ -519,22 +552,22 @@ export default function AdminDashboard() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="grid w-full grid-cols-6 lg:w-full">
             <TabsTrigger value="overview" data-testid="tab-overview">
-              Overview
+              Yfirlit
             </TabsTrigger>
             <TabsTrigger value="sessions" data-testid="tab-sessions">
-              Sessions
+              Tímar
             </TabsTrigger>
-            <TabsTrigger value="services" data-testid="tab-services">
-              Services
+            <TabsTrigger value="costs" data-testid="tab-costs">
+              Kostnaður
             </TabsTrigger>
-            <TabsTrigger value="instructors" data-testid="tab-instructors">
-              Instructors
+            <TabsTrigger value="users" data-testid="tab-users">
+              Notendur
             </TabsTrigger>
             <TabsTrigger value="bookings" data-testid="tab-bookings">
-              Bookings
+              Bókanir
             </TabsTrigger>
             <TabsTrigger value="analytics" data-testid="tab-analytics">
-              Analytics
+              Tölfræði
             </TabsTrigger>
           </TabsList>
 
@@ -544,7 +577,7 @@ export default function AdminDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="font-serif text-xl" data-testid="recent-bookings-title">
-                    Recent Bookings
+                    Nýlegar bókanir
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -568,25 +601,25 @@ export default function AdminDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="font-serif text-xl" data-testid="services-overview-title">
-                    Services Overview
+                    Yfirlit þjónustu
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Total Services</span>
+                      <span className="text-sm text-muted-foreground">Öll þjónusta</span>
                       <Badge variant="secondary" data-testid="total-services-count">
                         {allServices?.length || 0}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Active Services</span>
+                      <span className="text-sm text-muted-foreground">Virk þjónusta</span>
                       <Badge variant="default" data-testid="active-services-count">
                         {allServices?.filter((s: any) => s.isActive)?.length || 0}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Total Instructors</span>
+                      <span className="text-sm text-muted-foreground">Allir leiðbeinendur</span>
                       <Badge variant="secondary" data-testid="total-instructors-count">
                         {instructors?.length || 0}
                       </Badge>
@@ -600,11 +633,11 @@ export default function AdminDashboard() {
           <TabsContent value="sessions" className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="sessions-management-title">
-                Schedule Management
+                Tímastjórnun
               </h2>
               <Button onClick={handleCreateClass} data-testid="button-add-class">
                 <Plus className="h-4 w-4 mr-2" />
-                Create Class
+                Búa til tíma
               </Button>
             </div>
 
@@ -618,12 +651,13 @@ export default function AdminDashboard() {
                       <TableHead>Staðsetning</TableHead>
                       <TableHead>Bókanir</TableHead>
                       <TableHead>Verð</TableHead>
+                      <TableHead>Aðgerðir</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {upcomingClasses.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           Engir tímar. Búðu til fyrsta tíminn þinn.
                         </TableCell>
                       </TableRow>
@@ -634,8 +668,19 @@ export default function AdminDashboard() {
                         const spotsLeft = classItem.maxCapacity - classItem.currentBookings;
 
                         return (
-                          <TableRow key={classItem.id} data-testid={`class-row-${classItem.id}`}>
-                            <TableCell className="font-medium">{classItem.template?.name || 'Unknown'}</TableCell>
+                          <TableRow
+                            key={classItem.id}
+                            data-testid={`class-row-${classItem.id}`}
+                          >
+                            <TableCell
+                              className="font-medium cursor-pointer hover:underline"
+                              onClick={() => {
+                                setSelectedClassId(classItem.id);
+                                setRegistrationsDialogOpen(true);
+                              }}
+                            >
+                              {classItem.template?.name || 'Unknown'}
+                            </TableCell>
                             <TableCell>
                               <div className="text-sm">
                                 <div>{format(scheduledDate, 'dd. MMM yyyy')}</div>
@@ -665,6 +710,33 @@ export default function AdminDashboard() {
                                 )}
                               </div>
                             </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Ertu viss um að þú viljir eyða þessum tíma?\n\n${classItem.template?.name}\n${format(scheduledDate, 'dd. MMM yyyy HH:mm')}\n\nViðvörun: Þetta mun eyða ${classItem.currentBookings} skráningum!`)) {
+                                    try {
+                                      await apiRequest("DELETE", `/api/classes/${classItem.id}`);
+                                      queryClient.invalidateQueries({ queryKey: ['/api/classes/all'] });
+                                      toast({
+                                        title: "Tíma eytt",
+                                        description: "Tímanum hefur verið eytt",
+                                      });
+                                    } catch (error) {
+                                      toast({
+                                        title: "Villa",
+                                        description: "Ekki tókst að eyða tíma",
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }
+                                }}
+                              >
+                                Eyða
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         );
                       })
@@ -675,141 +747,232 @@ export default function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="services" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="services-management-title">
-                Service Management
-              </h2>
-              <Button onClick={handleCreateService} data-testid="button-add-service">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Service
-              </Button>
-            </div>
-
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Capacity</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {allServices?.map((service: any) => (
-                      <TableRow key={service.id} data-testid={`service-row-${service.id}`}>
-                        <TableCell className="font-medium">{service.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{service.category}</Badge>
-                        </TableCell>
-                        <TableCell>{service.duration} min</TableCell>
-                        <TableCell>{service.price} ISK</TableCell>
-                        <TableCell>{service.maxCapacity}</TableCell>
-                        <TableCell>
-                          <Badge variant={service.isActive ? "default" : "secondary"}>
-                            {service.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditService(service)}
-                              data-testid={`button-edit-${service.id}`}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="outline" size="sm" data-testid={`button-delete-${service.id}`}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Service</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to delete "{service.name}"? This action cannot be undone.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => deleteServiceMutation.mutate(service.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="instructors" className="space-y-6">
-            <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="instructors-management-title">
-              Instructor Management
+          <TabsContent value="costs" className="space-y-6">
+            <h2 className="font-serif text-2xl font-bold text-foreground mb-6">
+              Kostnaðarstjórnun
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {instructors?.map((instructor: any) => (
-                <Card key={instructor.instructors.id} data-testid={`instructor-card-${instructor.instructors.id}`}>
-                  <CardContent className="p-6">
-                    <div className="text-center mb-4">
-                      <img
-                        src={instructor.users.profileImageUrl || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=200&h=200"}
-                        alt={`${instructor.users.firstName} ${instructor.users.lastName}`}
-                        className="w-16 h-16 rounded-full mx-auto mb-2 object-cover"
-                      />
-                      <h3 className="font-semibold text-foreground">
-                        {instructor.users.firstName} {instructor.users.lastName}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">{instructor.users.email}</p>
-                    </div>
+            <Tabs defaultValue="customer-invoices" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="customer-invoices">
+                  Viðskiptavinareikningar
+                </TabsTrigger>
+                <TabsTrigger value="company-invoices">
+                  Fyrirtækjareikningar
+                </TabsTrigger>
+              </TabsList>
 
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Status:</span>
-                        <Badge variant={instructor.instructors.isActive ? "default" : "secondary"}>
-                          {instructor.instructors.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                      
-                      {instructor.instructors.specializations && instructor.instructors.specializations.length > 0 && (
-                        <div>
-                          <span className="text-muted-foreground text-xs">Specializations:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {instructor.instructors.specializations.slice(0, 2).map((spec: string, index: number) => (
-                              <Badge key={index} variant="outline" className="text-xs">
-                                {spec}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+              {/* Customer Invoices */}
+              <TabsContent value="customer-invoices" className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-muted-foreground">
+                    Reikningar sendir til viðskiptavina
+                  </p>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Búa til reikning
+                  </Button>
+                </div>
+
+                <Card>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Reikningsnr.</TableHead>
+                          <TableHead>Viðskiptavinur</TableHead>
+                          <TableHead>Upphæð</TableHead>
+                          <TableHead>Staða</TableHead>
+                          <TableHead>Gjalddagi</TableHead>
+                          <TableHead>Aðgerðir</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {customerInvoices && customerInvoices.length > 0 ? (
+                          customerInvoices.map((invoice: any) => (
+                            <TableRow key={invoice.id}>
+                              <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                              <TableCell>{invoice.clientId}</TableCell>
+                              <TableCell>{invoice.amount?.toLocaleString('is-IS')} kr</TableCell>
+                              <TableCell>
+                                <Badge variant={invoice.status === 'paid' ? 'default' : invoice.status === 'sent' ? 'secondary' : 'outline'}>
+                                  {invoice.status === 'paid' ? 'Greitt' : invoice.status === 'sent' ? 'Sent' : invoice.status === 'draft' ? 'Drög' : 'Afturkallað'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('is-IS') : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Button variant="ghost" size="sm">
+                                  Skoða
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                              Engir reikningar ennþá
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
-              ))}
+              </TabsContent>
+
+              {/* Company Invoices */}
+              <TabsContent value="company-invoices" className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-muted-foreground">
+                    Kostnaðarreikningar frá birgjum
+                  </p>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Hlaða upp reikningi
+                  </Button>
+                </div>
+
+                <Card>
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Reikningsnr.</TableHead>
+                          <TableHead>Birgir</TableHead>
+                          <TableHead>Flokkur</TableHead>
+                          <TableHead>Upphæð</TableHead>
+                          <TableHead>Dagsetning</TableHead>
+                          <TableHead>Staða</TableHead>
+                          <TableHead>Aðgerðir</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {companyInvoices && companyInvoices.length > 0 ? (
+                          companyInvoices.map((invoice: any) => (
+                            <TableRow key={invoice.id}>
+                              <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                              <TableCell>{invoice.vendor}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{invoice.category}</Badge>
+                              </TableCell>
+                              <TableCell>{invoice.amount?.toLocaleString('is-IS')} kr</TableCell>
+                              <TableCell>
+                                {invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString('is-IS') : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={invoice.status === 'paid' ? 'default' : invoice.status === 'overdue' ? 'destructive' : 'secondary'}>
+                                  {invoice.status === 'paid' ? 'Greitt' : invoice.status === 'overdue' ? 'Tímabært' : 'Í bið'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button variant="ghost" size="sm">
+                                    Skoða
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                              Engir reikningar ennþá
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+
+          <TabsContent value="users" className="space-y-6">
+            <h2 className="font-serif text-2xl font-bold text-foreground mb-6">
+              Notendastjórnun
+            </h2>
+
+            {/* Admins Table */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Stjórnendur</h3>
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nafn</TableHead>
+                        <TableHead>Netfang</TableHead>
+                        <TableHead>Hlutverk</TableHead>
+                        <TableHead>Staða</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allUsers?.filter((u: any) => u.isSuperuser || u.role === 'admin').map((user: any) => (
+                        <TableRow key={user.id}>
+                          <TableCell className="font-medium">
+                            {user.firstName} {user.lastName}
+                          </TableCell>
+                          <TableCell>{user.email}</TableCell>
+                          <TableCell>
+                            <Badge variant={user.isSuperuser ? "default" : "secondary"}>
+                              {user.isSuperuser ? 'Superuser' : 'Admin'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">Virkur</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Regular Users Table */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Notendur</h3>
+              <Card>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nafn</TableHead>
+                        <TableHead>Netfang</TableHead>
+                        <TableHead>Hlutverk</TableHead>
+                        <TableHead>Skráður</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allUsers?.filter((u: any) => !u.isSuperuser && u.role !== 'admin').map((user: any) => (
+                        <TableRow key={user.id}>
+                          <TableCell className="font-medium">
+                            {user.firstName} {user.lastName}
+                          </TableCell>
+                          <TableCell>{user.email}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {user.role === 'staff' ? 'Starfsmaður' : 'Viðskiptavinur'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString('is-IS') : '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
           <TabsContent value="bookings" className="space-y-6">
             <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="bookings-management-title">
-              All Bookings
+              Allar bókanir
             </h2>
 
             <Card>
@@ -817,13 +980,13 @@ export default function AdminDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Instructor</TableHead>
-                      <TableHead>Date & Time</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Payment</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead>Viðskiptavinur</TableHead>
+                      <TableHead>Þjónusta</TableHead>
+                      <TableHead>Leiðbeinandi</TableHead>
+                      <TableHead>Dagsetning & tími</TableHead>
+                      <TableHead>Staða</TableHead>
+                      <TableHead>Greiðsla</TableHead>
+                      <TableHead>Upphæð</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -864,7 +1027,7 @@ export default function AdminDashboard() {
 
           <TabsContent value="analytics" className="space-y-6">
             <h2 className="font-serif text-2xl font-bold text-foreground" data-testid="analytics-title">
-              Platform Analytics
+              Tölfræði vettvangs
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1240,6 +1403,102 @@ export default function AdminDashboard() {
                 </DialogFooter>
               </form>
             </Form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Class Registrations Dialog */}
+        <Dialog open={registrationsDialogOpen} onOpenChange={setRegistrationsDialogOpen}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-2xl">
+                Skráningar á tíma
+              </DialogTitle>
+              <DialogDescription>
+                Skoðaðu alla þátttakendur sem eru skráðir á þennan tíma
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {selectedClassRegistrations && selectedClassRegistrations.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nafn</TableHead>
+                      <TableHead>Netfang</TableHead>
+                      <TableHead>Sími</TableHead>
+                      <TableHead>Staða</TableHead>
+                      <TableHead>Greiðsla</TableHead>
+                      <TableHead>Upphæð</TableHead>
+                      <TableHead>Skráður</TableHead>
+                      <TableHead>Aðgerðir</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedClassRegistrations.map((registration: any) => (
+                      <TableRow key={registration.id}>
+                        <TableCell className="font-medium">
+                          {registration.client.firstName} {registration.client.lastName}
+                        </TableCell>
+                        <TableCell className="text-sm">{registration.client.email}</TableCell>
+                        <TableCell className="text-sm">{registration.client.phone || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant={registration.status === 'confirmed' ? 'default' : 'secondary'}>
+                            {registration.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={registration.paymentStatus === 'paid' ? 'default' : 'destructive'}>
+                            {registration.paymentStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{registration.paymentAmount?.toLocaleString('is-IS')} kr</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {format(new Date(registration.createdAt), 'MMM d, yyyy')}
+                        </TableCell>
+                        <TableCell>
+                          {registration.paymentStatus !== 'paid' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest("PATCH", `/api/registrations/${registration.id}`, {
+                                    paymentStatus: 'paid'
+                                  });
+                                  queryClient.invalidateQueries({ queryKey: ['/api/classes', selectedClassId, 'registrations'] });
+                                  toast({
+                                    title: "Greiðsla staðfest",
+                                    description: "Greiðsla hefur verið merkt sem greidd",
+                                  });
+                                } catch (error) {
+                                  toast({
+                                    title: "Villa",
+                                    description: "Ekki tókst að staðfesta greiðslu",
+                                    variant: "destructive",
+                                  });
+                                }
+                              }}
+                            >
+                              Staðfesta greiðslu
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  Engar skráningar ennþá
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button onClick={() => setRegistrationsDialogOpen(false)}>
+                Loka
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
