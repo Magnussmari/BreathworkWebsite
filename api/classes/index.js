@@ -73,6 +73,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   } catch (error) {
     console.error("Classes error:", error);
+    console.error("Error stack:", error.stack);
+    console.error("Error details:", JSON.stringify(error, null, 2));
 
     if (error.message === 'Unauthorized') {
       return res.status(401).json({ message: "Unauthorized" });
@@ -82,6 +84,10 @@ export default async function handler(req, res) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    return res.status(500).json({ message: "Failed to process classes request" });
+    return res.status(500).json({
+      message: "Failed to process classes request",
+      error: error.message,
+      details: error.issues || error.toString()
+    });
   }
 }
