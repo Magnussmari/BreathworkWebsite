@@ -63,7 +63,7 @@ export default async function handler(req, res) {
       await authenticateAdmin();
 
       // Validate and transform the request body
-      const { insertClassSchema } = await import('../../dist/schema.js');
+      const { insertClassSchema } = await import('../../dist/index.js');
       const validated = insertClassSchema.parse(req.body);
 
       const newClass = await storage.createClass(validated);
