@@ -61,7 +61,12 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       // POST /api/classes - Create new class (admin only)
       await authenticateAdmin();
-      const newClass = await storage.createClass(req.body);
+
+      // Validate and transform the request body
+      const { insertClassSchema } = await import('../../dist/schema.js');
+      const validated = insertClassSchema.parse(req.body);
+
+      const newClass = await storage.createClass(validated);
       return res.json(newClass);
     }
 
