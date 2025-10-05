@@ -176,9 +176,9 @@ export default function AdminDashboard() {
   });
 
   const { data: classesData, isLoading: classesLoading, error: classesError } = useQuery({
-    queryKey: ['/api/classes/all'],
+    queryKey: ['/api/classes?type=all'],
     queryFn: async () => {
-      const response = await fetch('/api/classes/all', {
+      const response = await fetch('/api/classes?type=all', {
         credentials: "include"
       });
       if (!response.ok) throw new Error('Failed to fetch classes');
@@ -323,8 +323,8 @@ export default function AdminDashboard() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/classes/all'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/classes/upcoming'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/classes?type=all'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/classes?type=upcoming'] });
       setClassDialogOpen(false);
       classForm.reset();
       toast({
@@ -721,7 +721,7 @@ export default function AdminDashboard() {
                                   if (confirm(`Ertu viss um að þú viljir eyða þessum tíma?\n\n${classItem.template?.name}\n${format(scheduledDate, 'dd. MMM yyyy HH:mm')}\n\nViðvörun: Þetta mun eyða ${classItem.currentBookings} skráningum!`)) {
                                     try {
                                       await apiRequest("DELETE", `/api/classes/${classItem.id}`);
-                                      queryClient.invalidateQueries({ queryKey: ['/api/classes/all'] });
+                                      queryClient.invalidateQueries({ queryKey: ['/api/classes?type=all'] });
                                       toast({
                                         title: "Tíma eytt",
                                         description: "Tímanum hefur verið eytt",

@@ -14,7 +14,7 @@ interface ClassWithTemplate extends Class {
 export default function ClassesLanding() {
   const { user } = useAuth();
   const { data: upcomingClasses, isLoading } = useQuery<ClassWithTemplate[]>({
-    queryKey: ["/api/classes/upcoming"],
+    queryKey: ["/api/classes?type=upcoming"],
   });
 
   const formatDate = (date: Date) => {

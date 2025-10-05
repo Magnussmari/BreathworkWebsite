@@ -2,11 +2,8 @@ export default async function handler(req, res) {
   try {
     const { storage } = await import('../../dist/storage.js');
 
-    if (req.method === 'POST') {
-      // Create new class (admin only)
-      const { verifySession } = await import('../../dist/supabaseAuth.js');
-
-      // Parse cookies
+    // Helper to parse cookies
+    const parseCookies = () => {
       const cookies = {};
       const cookieHeader = req.headers.cookie;
       if (cookieHeader) {
@@ -17,19 +14,53 @@ export default async function handler(req, res) {
           }
         });
       }
+      return cookies;
+    };
 
+    // Helper to authenticate admin
+    const authenticateAdmin = async () => {
+      const { verifySession } = await import('../../dist/supabaseAuth.js');
+      const cookies = parseCookies();
       const token = cookies['session_token'];
+
       if (!token) {
-        return res.status(401).json({ message: "Unauthorized" });
+        throw new Error('Unauthorized');
       }
 
       const payload = verifySession(token);
       const user = await storage.getUser(payload.id);
 
       if (!user || user.role !== 'admin') {
-        return res.status(403).json({ message: "Admin access required" });
+        throw new Error('Admin access required');
       }
 
+      return user;
+    };
+
+    if (req.method === 'GET') {
+      const { type } = req.query;
+
+      // GET /api/classes?type=upcoming - Public upcoming classes
+      if (type === 'upcoming') {
+        const classes = await storage.getUpcomingClasses();
+        return res.json(classes);
+      }
+
+      // GET /api/classes?type=all - Admin all classes
+      if (type === 'all') {
+        await authenticateAdmin();
+        const classes = await storage.getAllClasses();
+        return res.json(classes);
+      }
+
+      // Default: upcoming classes
+      const classes = await storage.getUpcomingClasses();
+      return res.json(classes);
+    }
+
+    if (req.method === 'POST') {
+      // POST /api/classes - Create new class (admin only)
+      await authenticateAdmin();
       const newClass = await storage.createClass(req.body);
       return res.json(newClass);
     }
@@ -37,6 +68,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   } catch (error) {
     console.error("Classes error:", error);
+
+    if (error.message === 'Unauthorized') {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (error.message === 'Admin access required') {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
     return res.status(500).json({ message: "Failed to process classes request" });
   }
 }

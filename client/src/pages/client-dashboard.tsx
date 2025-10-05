@@ -42,7 +42,7 @@ export default function ClientDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/registrations/my'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/classes/upcoming'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/classes?type=upcoming'] });
       toast({
         title: "Bókun afturkölluð",
         description: "Plássið þitt hefur verið losað fyrir aðra.",
