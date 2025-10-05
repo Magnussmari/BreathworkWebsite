@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { Calendar, MapPin, Users, Clock, ArrowLeft, CheckCircle, Timer, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,7 +26,8 @@ export default function ClassDetail() {
   const [step, setStep] = useState<"initial" | "confirming" | "success">("initial");
   const [hasConfirmedTransfer, setHasConfirmedTransfer] = useState(false);
   const [reservationId, setReservationId] = useState<string | null>(null);
-  const [timeRemaining, setTimeRemaining] = useState(300); // 5 minutes in seconds
+  const [timeRemaining, setTimeRemaining] = useState(600); // 10 minutes in seconds
+  const [paymentMethod, setPaymentMethod] = useState<"bank_transfer" | "pay_on_arrival">("bank_transfer");
 
   const { data: classItem, isLoading } = useQuery<ClassWithTemplate>({
     queryKey: [`/api/classes/${params?.id}`],
@@ -55,7 +58,7 @@ export default function ClassDetail() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Step 1: Create reservation (holds spot for 5 minutes)
+  // Step 1: Create reservation (holds spot for 10 minutes)
   const createReservationMutation = useMutation({
     mutationFn: async () => {
       if (!classItem) throw new Error("No class selected");
@@ -67,20 +70,32 @@ export default function ClassDetail() {
         body: JSON.stringify({
           classId: classItem.id,
           paymentAmount: actualPrice,
+          paymentMethod: paymentMethod,
         }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ message: "Unknown error" }));
         throw new Error(error.message || "Reservation failed");
       }
 
-      return response.json();
+      const text = await response.text();
+      if (!text) {
+        throw new Error("Engin svar frá bakenda");
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        console.error("JSON parse error:", e);
+        console.error("Response text:", text);
+        throw new Error(`Ógilt svar frá bakenda: ${text.substring(0, 100)}`);
+      }
     },
     onSuccess: (reservation) => {
       setReservationId(reservation.id);
       setStep("confirming");
-      setTimeRemaining(300); // Reset to 5 minutes
+      setTimeRemaining(600); // Reset to 10 minutes
       queryClient.invalidateQueries({ queryKey: [`/api/classes/${params?.id}`] });
     },
     onError: (error: Error) => {
@@ -287,11 +302,31 @@ export default function ClassDetail() {
                     <span className="text-muted-foreground">Verð</span>
                     <span className="text-3xl font-bold">{actualPrice.toLocaleString('is-IS')} kr.</span>
                   </div>
-                  <p className="text-sm text-muted-foreground">Greitt með millifærslu</p>
                 </div>
 
                 {step === "initial" && (
                   <>
+                    {/* Payment Method Selection */}
+                    <div className="space-y-3">
+                      <Label className="text-base font-semibold">Greiðslumáti</Label>
+                      <RadioGroup value={paymentMethod} onValueChange={(value) => setPaymentMethod(value as "bank_transfer" | "pay_on_arrival")}>
+                        <div className="flex items-center space-x-2 border rounded-lg p-3 cursor-pointer hover:bg-accent" onClick={() => setPaymentMethod("bank_transfer")}>
+                          <RadioGroupItem value="bank_transfer" id="bank_transfer" />
+                          <Label htmlFor="bank_transfer" className="flex-1 cursor-pointer">
+                            <span className="font-medium">Millifærsla</span>
+                            <p className="text-sm text-muted-foreground">Greiðslufrestur 24 klst.</p>
+                          </Label>
+                        </div>
+                        <div className="flex items-center space-x-2 border rounded-lg p-3 cursor-pointer hover:bg-accent" onClick={() => setPaymentMethod("pay_on_arrival")}>
+                          <RadioGroupItem value="pay_on_arrival" id="pay_on_arrival" />
+                          <Label htmlFor="pay_on_arrival" className="flex-1 cursor-pointer">
+                            <span className="font-medium">Borga við komu</span>
+                            <p className="text-sm text-muted-foreground">Greiðsla í stað</p>
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
                     {!isAuthenticated ? (
                       <div className="space-y-3">
                         <Button
@@ -327,8 +362,14 @@ export default function ClassDetail() {
 
                     <div className="border-t pt-4 space-y-2 text-sm text-muted-foreground">
                       <p>✓ Pláss frátekið strax</p>
-                      <p>✓ Greiðsluupplýsingar í staðfestingarpósti</p>
-                      <p>✓ Greiðslufrestur 24 klst.</p>
+                      {paymentMethod === "bank_transfer" ? (
+                        <>
+                          <p>✓ Greiðsluupplýsingar í staðfestingarpósti</p>
+                          <p>✓ Greiðslufrestur 24 klst.</p>
+                        </>
+                      ) : (
+                        <p>✓ Borgaðu þegar þú mætir í tímanum</p>
+                      )}
                       <p>✓ Ókeypis afbókun allt að 24 klst. fyrir</p>
                     </div>
                   </>
@@ -348,51 +389,69 @@ export default function ClassDetail() {
                         </span>
                       </div>
                       <p className="text-sm text-orange-700">
-                        Plássið þitt er frátekið í 5 mínútur. Millifærðu greiðsluna og staðfestu hér að neðan.
+                        {paymentMethod === "bank_transfer"
+                          ? "Plássið þitt er frátekið í 10 mínútur. Millifærðu greiðsluna og staðfestu hér að neðan."
+                          : "Plássið þitt er frátekið í 10 mínútur. Staðfestu bókun hér að neðan."
+                        }
                       </p>
                     </div>
 
-                    {/* Bank Transfer Instructions */}
-                    <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 space-y-2">
-                      <h4 className="font-semibold text-blue-900 mb-2">Millifærsluupplýsingar:</h4>
-                      <div className="text-sm text-blue-800 space-y-1">
-                        <p><strong>Banki:</strong> Íslandsbanki</p>
-                        <p><strong>Reikningur:</strong> 0133-26-012345</p>
-                        <p><strong>Upphæð:</strong> {actualPrice.toLocaleString('is-IS')} kr.</p>
-                        <p className="text-xs mt-2 text-blue-600">
-                          Nákvæmar upplýsingar koma í staðfestingarpósti
-                        </p>
-                      </div>
-                    </div>
+                    {/* Payment Instructions */}
+                    {paymentMethod === "bank_transfer" ? (
+                      <>
+                        {/* Bank Transfer Instructions */}
+                        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 space-y-2">
+                          <h4 className="font-semibold text-blue-900 mb-2">Millifærsluupplýsingar:</h4>
+                          <div className="text-sm text-blue-800 space-y-1">
+                            <p><strong>Banki:</strong> Íslandsbanki</p>
+                            <p><strong>Reikningur:</strong> 0133-26-012345</p>
+                            <p><strong>Upphæð:</strong> {actualPrice.toLocaleString('is-IS')} kr.</p>
+                            <p className="text-xs mt-2 text-blue-600">
+                              Nákvæmar upplýsingar koma í staðfestingarpósti
+                            </p>
+                          </div>
+                        </div>
 
-                    {/* Confirmation Checkbox */}
-                    <div className="border-2 border-primary/30 rounded-lg p-4 bg-gradient-to-r from-primary/5 to-primary/10">
-                      <div className="flex items-start space-x-3">
-                        <Checkbox
-                          id="confirm-transfer"
-                          checked={hasConfirmedTransfer}
-                          onCheckedChange={(checked) => setHasConfirmedTransfer(checked as boolean)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <label
-                            htmlFor="confirm-transfer"
-                            className="text-sm font-semibold cursor-pointer block mb-1"
-                          >
-                            ✓ Ég hef millifært greiðsluna
-                          </label>
-                          <p className="text-xs text-muted-foreground">
-                            Hakið í þennan reit þegar þú hefur sent millifærsluna
+                        {/* Confirmation Checkbox */}
+                        <div className="border-2 border-primary/30 rounded-lg p-4 bg-gradient-to-r from-primary/5 to-primary/10">
+                          <div className="flex items-start space-x-3">
+                            <Checkbox
+                              id="confirm-transfer"
+                              checked={hasConfirmedTransfer}
+                              onCheckedChange={(checked) => setHasConfirmedTransfer(checked as boolean)}
+                              className="mt-1"
+                            />
+                            <div className="flex-1">
+                              <label
+                                htmlFor="confirm-transfer"
+                                className="text-sm font-semibold cursor-pointer block mb-1"
+                              >
+                                ✓ Ég hef millifært greiðsluna
+                              </label>
+                              <p className="text-xs text-muted-foreground">
+                                Hakið í þennan reit þegar þú hefur sent millifærsluna
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4">
+                        <h4 className="font-semibold text-green-900 mb-2">Borga við komu</h4>
+                        <div className="text-sm text-green-800 space-y-1">
+                          <p>Þú greiðir {actualPrice.toLocaleString('is-IS')} kr. þegar þú mætir í tímanum.</p>
+                          <p className="text-xs mt-2 text-green-600">
+                            Við tökum á móti reiðufé og kortum
                           </p>
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Confirm Button */}
                     <Button
                       size="lg"
                       className="w-full"
-                      disabled={!hasConfirmedTransfer || confirmRegistrationMutation.isPending}
+                      disabled={(paymentMethod === "bank_transfer" && !hasConfirmedTransfer) || confirmRegistrationMutation.isPending}
                       onClick={() => confirmRegistrationMutation.mutate()}
                     >
                       {confirmRegistrationMutation.isPending ? (

@@ -49,7 +49,7 @@ export default function ClassesLanding() {
                 <path d="M8 12 Q12 8 16 12 Q12 16 8 12" strokeWidth="2" fill="none"/>
               </svg>
               <h1 className="font-serif text-4xl sm:text-5xl font-bold text-foreground">
-                Öndunaræfingar
+                Breathwork
               </h1>
             </div>
 
@@ -240,7 +240,7 @@ export default function ClassesLanding() {
               <circle cx="12" cy="12" r="10" strokeWidth="2"/>
               <path d="M8 12 Q12 8 16 12 Q12 16 8 12" strokeWidth="2" fill="none"/>
             </svg>
-            <span className="font-serif text-xl font-bold">Öndunaræfingar</span>
+            <span className="font-serif text-xl font-bold">Breathwork</span>
           </div>
           <p className="text-muted-foreground mb-2">Breathwork ehf.</p>
           <p className="text-sm text-muted-foreground">Umbreyttu lífi þínu með öndunaræfingum á Íslandi</p>

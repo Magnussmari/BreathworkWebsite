@@ -1,101 +1,17 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { apiRequest } from "@/lib/queryClient";
-import { Calendar, Clock, User, CreditCard } from "lucide-react";
+import { Calendar, Clock, User, CreditCard, Building2, Hash } from "lucide-react";
 import { format } from "date-fns";
-
-// Make sure to call `loadStripe` outside of a component's render to avoid
-// recreating the `Stripe` object on every render.
-if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-  throw new Error('Missing required Stripe key: VITE_STRIPE_PUBLIC_KEY');
-}
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
-
-const CheckoutForm = ({ booking }: { booking: any }) => {
-  const stripe = useStripe();
-  const elements = useElements();
-  const { toast } = useToast();
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsProcessing(true);
-
-    if (!stripe || !elements) {
-      setIsProcessing(false);
-      return;
-    }
-
-    const { error } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/dashboard`,
-      },
-    });
-
-    if (error) {
-      toast({
-        title: "Payment Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: "Payment Successful",
-        description: "Thank you for your booking! You'll receive a confirmation email shortly.",
-      });
-    }
-
-    setIsProcessing(false);
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-serif text-2xl" data-testid="payment-title">
-          Complete Your Payment
-        </CardTitle>
-        <p className="text-muted-foreground">
-          Secure payment processing with Stripe. We accept all major cards and digital wallets.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <PaymentElement />
-          
-          <div className="pt-4 border-t">
-            <div className="flex justify-between items-center text-lg font-semibold">
-              <span>Total Amount:</span>
-              <span data-testid="total-amount">{booking.services.price} ISK</span>
-            </div>
-          </div>
-
-          <Button 
-            type="submit" 
-            disabled={!stripe || isProcessing} 
-            className="w-full"
-            data-testid="button-pay"
-          >
-            {isProcessing ? 'Processing...' : `Pay ${booking.services.price} ISK`}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
-};
 
 export default function Checkout() {
   const [location] = useLocation();
   const { toast } = useToast();
-  const [clientSecret, setClientSecret] = useState("");
 
   // Get booking ID from URL params
   const urlParams = new URLSearchParams(location.split('?')[1]);
@@ -116,53 +32,11 @@ export default function Checkout() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
   }, [error, toast]);
-
-  const createPaymentIntentMutation = useMutation({
-    mutationFn: async () => {
-      if (!booking) throw new Error('No booking data');
-      
-      const response = await apiRequest("POST", "/api/create-payment-intent", {
-        amount: parseFloat(booking.services.price),
-        currency: "isk",
-        metadata: {
-          bookingId: booking.bookings.id,
-        },
-      });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      setClientSecret(data.clientSecret);
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
-      toast({
-        title: "Payment Setup Failed",
-        description: "Failed to initialize payment. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  useEffect(() => {
-    if (booking && booking.bookings.paymentStatus !== 'paid') {
-      createPaymentIntentMutation.mutate();
-    }
-  }, [booking]);
 
   if (!bookingId) {
     return (
@@ -243,17 +117,6 @@ export default function Checkout() {
     );
   }
 
-  if (!clientSecret) {
-    return (
-      <div className="min-h-screen pt-16 py-12 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" aria-label="Loading"/>
-          <p className="text-muted-foreground">Setting up payment...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen pt-16 py-12">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -281,21 +144,21 @@ export default function Checkout() {
                       {format(new Date(booking.timeSlots.startTime), 'EEEE, MMMM d, yyyy')}
                     </span>
                   </div>
-                  
+
                   <div className="flex items-center text-muted-foreground">
                     <Clock className="h-4 w-4 mr-3" />
                     <span data-testid="booking-time">
                       {format(new Date(booking.timeSlots.startTime), 'h:mm a')} - {format(new Date(booking.timeSlots.endTime), 'h:mm a')}
                     </span>
                   </div>
-                  
+
                   <div className="flex items-center text-muted-foreground">
                     <User className="h-4 w-4 mr-3" />
                     <span data-testid="instructor-name">
                       {booking.instructors.users.firstName} {booking.instructors.users.lastName}
                     </span>
                   </div>
-                  
+
                   <div className="flex items-center text-muted-foreground">
                     <CreditCard className="h-4 w-4 mr-3" />
                     <span data-testid="duration">
@@ -322,11 +185,70 @@ export default function Checkout() {
             </Card>
           </div>
 
-          {/* Payment Form */}
+          {/* Bank Transfer Payment Instructions */}
           <div>
-            <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <CheckoutForm booking={booking} />
-            </Elements>
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-serif text-2xl" data-testid="payment-title">
+                  Payment Instructions
+                </CardTitle>
+                <p className="text-muted-foreground">
+                  Complete your booking by transferring the amount to our bank account.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="p-4 bg-muted rounded-lg space-y-3">
+                    <div className="flex items-start">
+                      <Building2 className="h-5 w-5 mr-3 mt-0.5 text-muted-foreground" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-muted-foreground">Bank Name</p>
+                        <p className="text-base font-semibold" data-testid="bank-name">Landsbankinn</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start">
+                      <Hash className="h-5 w-5 mr-3 mt-0.5 text-muted-foreground" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-muted-foreground">Account Number (Kennitala)</p>
+                        <p className="text-base font-semibold font-mono" data-testid="account-number">0133-26-xxxxxx</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start">
+                      <Hash className="h-5 w-5 mr-3 mt-0.5 text-muted-foreground" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-muted-foreground">Reference Number</p>
+                        <p className="text-base font-semibold font-mono" data-testid="reference-number">{booking.bookings.id.slice(0, 8).toUpperCase()}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t">
+                    <div className="flex justify-between items-center text-lg font-semibold mb-4">
+                      <span>Amount to Transfer:</span>
+                      <span className="text-2xl text-primary" data-testid="total-amount">{booking.services.price} ISK</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Important:</strong> Please include the reference number in your transfer to ensure proper payment processing.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Once we receive your payment, you'll receive a confirmation email. This typically takes 1-2 business days.
+                  </p>
+                  <Button
+                    asChild
+                    className="w-full"
+                    data-testid="button-dashboard"
+                  >
+                    <a href="/dashboard">Return to Dashboard</a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Security Information */}
             <Card className="mt-6 bg-gradient-to-r from-primary/5 to-accent/5 border-none">
@@ -336,13 +258,13 @@ export default function Checkout() {
                     <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                     </svg>
-                    Secured by Stripe
+                    Secure Bank Transfer
                   </div>
                   <div className="flex items-center">
                     <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
-                    SSL Encrypted
+                    Payment Confirmed via Email
                   </div>
                 </div>
               </CardContent>

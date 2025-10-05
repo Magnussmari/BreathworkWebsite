@@ -44,14 +44,14 @@ export default function ClientDashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/registrations/my'] });
       queryClient.invalidateQueries({ queryKey: ['/api/classes/upcoming'] });
       toast({
-        title: "Registration Cancelled",
-        description: "Your spot has been freed up for others.",
+        title: "Bókun afturkölluð",
+        description: "Plássið þitt hefur verið losað fyrir aðra.",
       });
     },
     onError: () => {
       toast({
-        title: "Cancellation Failed",
-        description: "Unable to cancel. Please try again.",
+        title: "Afturköllun mistókst",
+        description: "Ekki tókst að afturkalla. Reyndu aftur.",
         variant: "destructive",
       });
     },
@@ -108,10 +108,12 @@ export default function ClientDashboard() {
               </CardTitle>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={registration.status === 'confirmed' ? 'default' : registration.status === 'cancelled' ? 'destructive' : 'secondary'}>
-                  {registration.status === 'confirmed' ? '✓ Confirmed' : registration.status.charAt(0).toUpperCase() + registration.status.slice(1)}
+                  {registration.status === 'confirmed' ? '✓ Staðfest' :
+                   registration.status === 'cancelled' ? 'Afturkallað' :
+                   registration.status === 'reserved' ? 'Frátekið' : 'Í bið'}
                 </Badge>
                 <Badge variant={registration.paymentStatus === 'paid' ? 'default' : 'outline'} className="bg-amber-500/10 text-amber-700 border-amber-200">
-                  {registration.paymentStatus === 'paid' ? 'Paid' : 'Pay at door'}
+                  {registration.paymentStatus === 'paid' ? 'Greitt' : 'Millifærsla'}
                 </Badge>
               </div>
             </div>
@@ -125,19 +127,19 @@ export default function ClientDashboard() {
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Cancel Registration?</AlertDialogTitle>
+                    <AlertDialogTitle>Afturkalla bókun?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Are you sure you want to cancel your spot for "{registration.class.template.name}"?
-                      This will free up your spot for other participants.
+                      Ertu viss um að þú viljir afturkalla plássið þitt í "{registration.class.template.name}"?
+                      Þetta losar plássið fyrir aðra þátttakendur.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Keep Spot</AlertDialogCancel>
+                    <AlertDialogCancel>Halda pláss</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() => cancelMutation.mutate(registration.id)}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      Cancel Spot
+                      Afturkalla
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -151,7 +153,7 @@ export default function ClientDashboard() {
             <div className="flex items-start gap-2">
               <CalendarIcon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <p className="font-medium text-foreground">Date</p>
+                <p className="font-medium text-foreground">Dagsetning</p>
                 <p className="text-muted-foreground line-clamp-2">{formatDate(classDate)}</p>
               </div>
             </div>
@@ -159,7 +161,7 @@ export default function ClientDashboard() {
             <div className="flex items-start gap-2">
               <Clock className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <p className="font-medium text-foreground">Time</p>
+                <p className="font-medium text-foreground">Tími</p>
                 <p className="text-muted-foreground">{formatTime(classDate)}</p>
               </div>
             </div>
@@ -167,7 +169,7 @@ export default function ClientDashboard() {
             <div className="flex items-start gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <p className="font-medium text-foreground">Location</p>
+                <p className="font-medium text-foreground">Staðsetning</p>
                 <p className="text-muted-foreground line-clamp-2">{registration.class.location}</p>
               </div>
             </div>
@@ -175,9 +177,9 @@ export default function ClientDashboard() {
             <div className="flex items-start gap-2">
               <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <p className="font-medium text-foreground">Capacity</p>
+                <p className="font-medium text-foreground">Pláss</p>
                 <p className="text-muted-foreground">
-                  {registration.class.currentBookings}/{registration.class.maxCapacity} spots
+                  {registration.class.currentBookings}/{registration.class.maxCapacity} pláss
                 </p>
               </div>
             </div>
@@ -185,7 +187,7 @@ export default function ClientDashboard() {
 
           {registration.notes && (
             <div className="pt-3 border-t">
-              <p className="text-sm text-muted-foreground italic">Note: {registration.notes}</p>
+              <p className="text-sm text-muted-foreground italic">Athugasemd: {registration.notes}</p>
             </div>
           )}
         </CardContent>
@@ -199,10 +201,10 @@ export default function ClientDashboard() {
         {/* Hero Header */}
         <div className="mb-12 text-center">
           <h1 className="font-serif text-4xl md:text-5xl font-bold text-foreground mb-4">
-            My Breathwork Journey
+            Öndunarferðin mín
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
-            Track your sessions, manage your bookings, and continue your transformation
+            Fylgstu með tímum, stjórnaðu bókunum og haltu áfram umbreytingunni
           </p>
           <Button
             size="lg"
@@ -210,7 +212,7 @@ export default function ClientDashboard() {
             className="group"
           >
             <Sparkles className="h-5 w-5 mr-2" />
-            Explore Classes
+            Skoða tíma
             <ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
           </Button>
         </div>
@@ -220,21 +222,21 @@ export default function ClientDashboard() {
           <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
             <CardContent className="pt-6">
               <div className="text-4xl font-bold text-primary mb-2">{upcoming.length}</div>
-              <div className="text-sm font-medium text-muted-foreground">Upcoming Sessions</div>
+              <div className="text-sm font-medium text-muted-foreground">Væntanlegir tímar</div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-green-500/5 to-green-500/10 border-green-500/20">
             <CardContent className="pt-6">
               <div className="text-4xl font-bold text-green-600 mb-2">{past.length}</div>
-              <div className="text-sm font-medium text-muted-foreground">Completed Sessions</div>
+              <div className="text-sm font-medium text-muted-foreground">Liðnir tímar</div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-amber-500/5 to-amber-500/10 border-amber-500/20">
             <CardContent className="pt-6">
               <div className="text-4xl font-bold text-amber-600 mb-2">{registrations?.length || 0}</div>
-              <div className="text-sm font-medium text-muted-foreground">Total Registrations</div>
+              <div className="text-sm font-medium text-muted-foreground">Allar bókanir</div>
             </CardContent>
           </Card>
         </div>
@@ -242,10 +244,10 @@ export default function ClientDashboard() {
         {/* Upcoming Sessions */}
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="font-serif text-2xl font-bold text-foreground">Upcoming Sessions</h2>
+            <h2 className="font-serif text-2xl font-bold text-foreground">Væntanlegir tímar</h2>
             {upcoming.length > 0 && (
               <Badge variant="secondary" className="text-sm">
-                {upcoming.length} active
+                {upcoming.length} virk
               </Badge>
             )}
           </div>
@@ -256,12 +258,12 @@ export default function ClientDashboard() {
                 <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                   <CalendarIcon className="h-8 w-8 text-muted-foreground" />
                 </div>
-                <h3 className="font-semibold text-lg mb-2">No Upcoming Sessions</h3>
+                <h3 className="font-semibold text-lg mb-2">Engir væntanlegir tímar</h3>
                 <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                  Ready to transform? Book your next breathwork session and continue your journey.
+                  Tilbúinn í breytingar? Bókaðu næsta tíma og haltu áfram ferðinni.
                 </p>
                 <Button onClick={() => setLocation("/")}>
-                  Browse Available Classes
+                  Skoða tíma
                 </Button>
               </CardContent>
             </Card>
@@ -278,9 +280,9 @@ export default function ClientDashboard() {
         {past.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-serif text-2xl font-bold text-foreground">Past Sessions</h2>
+              <h2 className="font-serif text-2xl font-bold text-foreground">Liðnir tímar</h2>
               <Badge variant="outline" className="text-sm">
-                {past.length} completed
+                {past.length} liðnir
               </Badge>
             </div>
 

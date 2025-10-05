@@ -28,6 +28,11 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 
+// Helper function to check if user is admin or superuser
+function isAdminOrSuperuser(user: any): boolean {
+  return user?.role === 'admin' || user?.isSuperuser === true;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Add cookie parser middleware
   app.use(cookieParser());
@@ -143,6 +148,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Users route (admin only)
+  app.get('/api/users', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const allUsers = await storage.getAllUsers();
+      // Remove password hashes from response
+      const usersWithoutPasswords = allUsers.map((u: any) => {
+        const { passwordHash, ...userWithoutPassword } = u;
+        return userWithoutPassword;
+      });
+      res.json(usersWithoutPasswords);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
   // Service routes
   app.get('/api/services', async (_req, res) => {
     try {
@@ -171,7 +197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Check if user is admin
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -190,7 +216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/services/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -206,7 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/services/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -246,7 +272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/time-slots/admin', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -296,8 +322,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/time-slots', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin' && user?.role !== 'staff') {
-        return res.status(403).json({ message: "Staff or admin access required" });
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
 
       const timeSlotData = insertTimeSlotSchema.parse(req.body);
@@ -312,8 +338,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/time-slots/:id', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin' && user?.role !== 'staff') {
-        return res.status(403).json({ message: "Staff or admin access required" });
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
 
       await storage.deleteTimeSlot(req.params.id);
@@ -328,18 +354,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/bookings', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      
+
       if (user?.role === 'client') {
         const bookings = await storage.getUserBookings(user.id);
         res.json(bookings);
-      } else if (user?.role === 'staff') {
-        const instructor = await storage.getInstructorByUserId(user.id);
-        if (!instructor) {
-          return res.status(404).json({ message: "Instructor profile not found" });
-        }
-        const bookings = await storage.getInstructorBookings(instructor.instructors.id);
-        res.json(bookings);
-      } else if (user?.role === 'admin') {
+      } else if (isAdminOrSuperuser(user)) {
         const bookings = await storage.getAllBookings();
         res.json(bookings);
       } else {
@@ -359,16 +378,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const user = await storage.getUser(req.user!.id);
-      
+
       // Check if user has access to this booking
       if (user?.role === 'client' && booking.bookings.clientId !== user.id) {
         return res.status(403).json({ message: "Access denied" });
       }
-      if (user?.role === 'staff') {
-        const instructor = await storage.getInstructorByUserId(user.id);
-        if (!instructor || booking.bookings.instructorId !== instructor.instructors.id) {
-          return res.status(403).json({ message: "Access denied" });
-        }
+
+      // Admin/superuser has access to all bookings
+      if (!isAdminOrSuperuser(user) && user?.role !== 'client') {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       res.json(booking);
@@ -554,8 +572,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/availability', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin' && user?.role !== 'staff') {
-        return res.status(403).json({ message: "Staff or admin access required" });
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
 
       const availabilityData = insertAvailabilitySchema.parse(req.body);
@@ -571,7 +589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/analytics/bookings', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -625,7 +643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = await storage.getUser(req.user!.id);
 
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -634,6 +652,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching all classes:", error);
       res.status(500).json({ message: "Failed to fetch all classes" });
+    }
+  });
+
+  // Admin utility to fix currentBookings counter
+  app.post('/api/classes/fix-counters', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const allClasses = await storage.getAllClasses();
+      console.log('[fix-counters] Found classes:', allClasses.length);
+      const fixed = [];
+
+      for (const classItem of allClasses) {
+        const registrationsList = await storage.getClassRegistrations(classItem.id);
+        const actualCount = registrationsList.length;
+
+        console.log(`[fix-counters] Class ${classItem.id}: currentBookings=${classItem.currentBookings}, actualCount=${actualCount}`);
+
+        if (classItem.currentBookings !== actualCount) {
+          console.log(`[fix-counters] MISMATCH FOUND - Fixing class ${classItem.id} from ${classItem.currentBookings} to ${actualCount}`);
+          await storage.fixClassBookingsCounter(classItem.id);
+
+          fixed.push({
+            classId: classItem.id,
+            name: classItem.template?.name,
+            oldCount: classItem.currentBookings,
+            newCount: actualCount,
+          });
+        }
+      }
+
+      console.log('[fix-counters] Fixed classes:', fixed);
+      res.json({ message: `Fixed ${fixed.length} classes`, fixed });
+    } catch (error) {
+      console.error("Error fixing counters:", error);
+      res.status(500).json({ message: "Failed to fix counters" });
     }
   });
 
@@ -660,11 +718,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/classes/:id/registrations', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const registrationsList = await storage.getClassRegistrations(req.params.id);
+      console.log(`[registrations] Class ${req.params.id}: Found ${registrationsList.length} registrations`);
+      console.log('[registrations] Data:', JSON.stringify(registrationsList, null, 2));
+      res.json(registrationsList);
+    } catch (error) {
+      console.error("Error fetching class registrations:", error);
+      res.status(500).json({ message: "Failed to fetch registrations" });
+    }
+  });
+
   app.post('/api/classes', isAuthenticated, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.id);
 
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -675,6 +751,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating class:", error);
       res.status(500).json({ message: "Failed to create class" });
+    }
+  });
+
+  app.delete('/api/classes/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      console.log(`[delete-class] Deleting class ${req.params.id}`);
+      await storage.deleteClass(req.params.id);
+      console.log(`[delete-class] Successfully deleted class ${req.params.id}`);
+      res.json({ message: "Class deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting class:", error);
+      res.status(500).json({ message: "Failed to delete class" });
     }
   });
 
@@ -693,7 +787,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = await storage.getUser(req.user!.id);
 
-      if (user?.role !== 'admin') {
+      if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -705,10 +799,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Step 1: Reserve a spot (5 minute hold)
+  // Step 1: Reserve a spot (10 minute hold)
   app.post('/api/registrations/reserve', isAuthenticated, async (req: AuthRequest, res) => {
     try {
+      console.log('Reserve request body:', req.body);
       const { classId, paymentAmount } = req.body;
+
+      if (!classId || !paymentAmount) {
+        return res.status(400).json({ message: "Missing classId or paymentAmount" });
+      }
 
       // Check if class exists and has space
       const classItem = await storage.getClass(classId);
@@ -723,9 +822,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate unique payment reference
       const paymentReference = `BW${Date.now().toString(36).toUpperCase()}`;
 
-      // Set reservation deadline (5 minutes)
+      // Set reservation deadline (10 minutes - time to complete bank transfer)
       const reservedUntil = new Date();
-      reservedUntil.setMinutes(reservedUntil.getMinutes() + 5);
+      reservedUntil.setMinutes(reservedUntil.getMinutes() + 10);
 
       // Set payment deadline (24 hours)
       const paymentDeadline = new Date();
@@ -743,12 +842,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'reserved' as const, // Temporary reservation
       };
 
+      console.log('Creating reservation with data:', registrationData);
       const registration = await storage.createRegistration(registrationData);
+      console.log('Created registration:', registration);
 
       res.json(registration);
     } catch (error) {
       console.error("Error creating reservation:", error);
-      res.status(500).json({ message: "Failed to create reservation" });
+      res.status(500).json({ message: "Failed to create reservation", error: String(error) });
     }
   });
 
@@ -838,7 +939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clientId: req.user!.id,
         paymentReference,
         paymentDeadline,
-        status: 'confirmed', // Spot is reserved immediately
+        status: 'confirmed' as const, // Spot is reserved immediately
       };
       console.log('Creating registration with data:', registrationData);
 
@@ -897,9 +998,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Registration not found" });
       }
 
-      // Verify ownership or admin
+      // Verify ownership or admin/superuser
       const user = await storage.getUser(req.user!.id);
-      if (registration.clientId !== req.user!.id && user?.role !== 'admin') {
+      if (registration.clientId !== req.user!.id && !isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -932,6 +1033,186 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error confirming transfer:", error);
       res.status(500).json({ message: "Failed to confirm transfer" });
+    }
+  });
+
+  // Admin: Update registration (payment status, etc.)
+  app.patch('/api/registrations/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const updated = await storage.updateRegistration(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating registration:", error);
+      res.status(500).json({ message: "Failed to update registration" });
+    }
+  });
+
+  // Invoice routes
+  // Customer invoices
+  app.post('/api/invoices/customer', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const invoice = await storage.createCustomerInvoice({
+        ...req.body,
+        createdBy: user!.id,
+      });
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error creating customer invoice:", error);
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  app.get('/api/invoices/customer', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const invoices = await storage.getCustomerInvoices();
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching customer invoices:", error);
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.get('/api/invoices/customer/my', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const invoices = await storage.getCustomerInvoicesByClient(req.user!.id);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching customer invoices:", error);
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.get('/api/invoices/customer/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const invoice = await storage.getCustomerInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      const user = await storage.getUser(req.user!.id);
+      // Allow access if admin or if it's the customer's own invoice
+      if (!isAdminOrSuperuser(user) && invoice.clientId !== req.user!.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error fetching customer invoice:", error);
+      res.status(500).json({ message: "Failed to fetch invoice" });
+    }
+  });
+
+  app.patch('/api/invoices/customer/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const updated = await storage.updateCustomerInvoice(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating customer invoice:", error);
+      res.status(500).json({ message: "Failed to update invoice" });
+    }
+  });
+
+  // Company invoices
+  app.post('/api/invoices/company', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const invoice = await storage.createCompanyInvoice({
+        ...req.body,
+        uploadedBy: user!.id,
+      });
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error creating company invoice:", error);
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  app.get('/api/invoices/company', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const invoices = await storage.getCompanyInvoices();
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching company invoices:", error);
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.get('/api/invoices/company/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const invoice = await storage.getCompanyInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error fetching company invoice:", error);
+      res.status(500).json({ message: "Failed to fetch invoice" });
+    }
+  });
+
+  app.patch('/api/invoices/company/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const updated = await storage.updateCompanyInvoice(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating company invoice:", error);
+      res.status(500).json({ message: "Failed to update invoice" });
+    }
+  });
+
+  app.delete('/api/invoices/company/:id', isAuthenticated, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      await storage.deleteCompanyInvoice(req.params.id);
+      res.json({ message: "Invoice deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting company invoice:", error);
+      res.status(500).json({ message: "Failed to delete invoice" });
     }
   });
 

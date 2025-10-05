@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Nordic Breath is a full-stack breathwork session booking platform built with React, Express, PostgreSQL (Supabase), Stripe payments (ISK currency), and Replit Auth (OIDC). The application supports three user roles: clients (book sessions), staff (instructors), and admins (full management).
+Nordic Breath is a full-stack breathwork session booking platform built with React, Express, PostgreSQL (Supabase), and bank transfer payments (ISK currency). The application supports three user roles: clients (book sessions), staff (instructors), and admins (full management).
 
 ## Development Commands
 
@@ -54,10 +54,12 @@ All tables use UUID primary keys generated via `gen_random_uuid()`. Foreign keys
 
 ### Authentication Flow
 
-- Uses Replit Auth (OIDC) configured in `server/replitAuth.ts`
-- Protected routes use `isAuthenticated` middleware
-- User ID available via `req.user.claims.sub` in authenticated routes
+- Uses JWT-based authentication with HTTP-only cookies
+- Session tokens signed with `SESSION_SECRET` environment variable
+- Protected routes use `isAuthenticated` middleware in `server/supabaseAuth.ts`
+- User ID available via `req.user.id` in authenticated routes
 - Role-based access: check `user.role` for `'client'`, `'staff'`, or `'admin'`
+- Tokens expire after 7 days
 
 ## Adding a New Feature
 
@@ -232,11 +234,12 @@ Run `npm run seed` to create:
 ## Environment Variables
 
 Required in `.env`:
-- `DATABASE_URL` - PostgreSQL connection string
-- `STRIPE_SECRET_KEY` - Stripe API key
-- `VITE_STRIPE_PUBLIC_KEY` - Stripe public key (frontend)
-- `SESSION_SECRET` - Session encryption (generate with `openssl rand -base64 32`)
-- `REPL_ID`, `REPLIT_DOMAINS`, `ISSUER_URL` - Replit Auth config
+- `DATABASE_URL` - PostgreSQL connection string (Supabase/Neon)
+- `SESSION_SECRET` - JWT signing secret (generate with `openssl rand -base64 32`)
+- `RESEND_API_KEY` - Email service API key
+- `FROM_EMAIL` - Sender email address for notifications
+- `SUPABASE_URL` - Supabase project URL (optional)
+- `SUPABASE_ANON_KEY` - Supabase anonymous key (optional)
 
 ## Common Issues
 
@@ -263,8 +266,9 @@ Check:
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Express.js + Node.js
 - **Database**: PostgreSQL (Supabase) + Drizzle ORM
-- **Authentication**: Replit Auth (OIDC)
-- **Payments**: Stripe (ISK currency)
+- **Authentication**: JWT tokens with bcrypt password hashing
+- **Payments**: Bank transfer (ISK currency)
+- **Email**: Resend API
 - **State Management**: TanStack Query (React Query)
 - **Forms**: React Hook Form + Zod validation
 - **Routing**: Wouter (lightweight React router)

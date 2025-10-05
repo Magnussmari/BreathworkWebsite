@@ -1,24 +1,21 @@
 import type { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { storage } from './storage';
 
-// Simple in-memory session store (replace with Redis in production)
-const sessions = new Map<string, { userId: string; email: string; expiresAt: number }>();
-
-// Generate a session token
-function generateSessionToken(): string {
-  return crypto.randomUUID();
+// Get JWT secret from environment
+const JWT_SECRET = process.env.SESSION_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is required');
 }
 
-// Cleanup expired sessions
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, session] of sessions.entries()) {
-    if (session.expiresAt < now) {
-      sessions.delete(token);
-    }
-  }
-}, 60000); // Run every minute
+const JWT_EXPIRES_IN = '7d'; // 7 days
+
+// JWT payload interface
+interface JWTPayload {
+  userId: string;
+  email: string;
+}
 
 // Authentication middleware
 export interface AuthRequest extends Request {
@@ -43,24 +40,22 @@ export async function isAuthenticated(
       return;
     }
 
-    // Check if session exists and is valid
-    const session = sessions.get(token);
-    if (!session) {
-      res.status(401).json({ message: 'Invalid session' });
+    // Verify JWT token
+    let decoded: JWTPayload;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET!) as JWTPayload;
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        res.status(401).json({ message: 'Session expired' });
+      } else {
+        res.status(401).json({ message: 'Invalid session' });
+      }
       return;
     }
 
-    // Check if session is expired
-    if (session.expiresAt < Date.now()) {
-      sessions.delete(token);
-      res.status(401).json({ message: 'Session expired' });
-      return;
-    }
-
-    // Get user from database
-    const user = await storage.getUser(session.userId);
+    // Get user from database to ensure they still exist
+    const user = await storage.getUser(decoded.userId);
     if (!user) {
-      sessions.delete(token);
       res.status(401).json({ message: 'User not found' });
       return;
     }
@@ -89,26 +84,30 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
-// Create session
+// Create session - now returns JWT token
 export function createSession(userId: string, email: string): string {
-  const token = generateSessionToken();
-  const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
-
-  sessions.set(token, {
+  const payload: JWTPayload = {
     userId,
     email,
-    expiresAt,
+  };
+
+  return jwt.sign(payload, JWT_SECRET!, {
+    expiresIn: JWT_EXPIRES_IN,
   });
-
-  return token;
 }
 
-// Delete session
-export function deleteSession(token: string): void {
-  sessions.delete(token);
+// Delete session - JWT is stateless, so we just invalidate on client side
+export function deleteSession(_token: string): void {
+  // With JWT, we can't invalidate server-side without a blacklist
+  // The client should remove the cookie/token
+  // For true invalidation, you'd need a token blacklist in Redis/DB
 }
 
-// Get session
-export function getSession(token: string) {
-  return sessions.get(token);
+// Get session - verify and return decoded token
+export function getSession(token: string): JWTPayload | null {
+  try {
+    return jwt.verify(token, JWT_SECRET!) as JWTPayload;
+  } catch (error) {
+    return null;
+  }
 }

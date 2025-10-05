@@ -118,7 +118,7 @@ export const registrations = pgTable("registrations", {
   status: varchar("status", { enum: ["pending", "confirmed", "cancelled", "reserved"] }).default("reserved").notNull(),
   paymentStatus: varchar("payment_status", { enum: ["pending", "paid", "refunded"] }).default("pending").notNull(),
   paymentAmount: integer("payment_amount").notNull(), // in ISK
-  paymentMethod: varchar("payment_method", { enum: ["bank_transfer", "cash", "card_at_door"] }).default("bank_transfer").notNull(),
+  paymentMethod: varchar("payment_method", { enum: ["bank_transfer", "pay_on_arrival"] }).default("bank_transfer").notNull(),
   paymentReference: varchar("payment_reference"), // Booking number for bank transfer reference
   userConfirmedTransfer: boolean("user_confirmed_transfer").default(false).notNull(), // User checked "I have transferred"
   adminVerifiedPayment: boolean("admin_verified_payment").default(false).notNull(), // Admin verified payment in bank
@@ -197,6 +197,44 @@ export const vouchers = pgTable("vouchers", {
   usedCount: integer("used_count").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Customer invoices (for class registrations)
+export const customerInvoices = pgTable("customer_invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceNumber: varchar("invoice_number").unique().notNull(), // e.g., "INV-2025-001"
+  registrationId: varchar("registration_id").references(() => registrations.id),
+  clientId: varchar("client_id").references(() => users.id).notNull(),
+  amount: integer("amount").notNull(), // in ISK
+  description: text("description"),
+  status: varchar("status", { enum: ["draft", "sent", "paid", "cancelled"] }).default("draft").notNull(),
+  pdfUrl: varchar("pdf_url"), // Supabase storage URL
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+  dueDate: timestamp("due_date"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Company expense invoices (for business expenses)
+export const companyInvoices = pgTable("company_invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceNumber: varchar("invoice_number").notNull(),
+  vendor: varchar("vendor").notNull(), // e.g., "Amazon Web Services"
+  category: varchar("category").notNull(), // e.g., "Software", "Marketing", "Equipment"
+  amount: integer("amount").notNull(), // in ISK
+  currency: varchar("currency").default("ISK").notNull(),
+  description: text("description"),
+  invoiceDate: timestamp("invoice_date").notNull(),
+  dueDate: timestamp("due_date"),
+  paidDate: timestamp("paid_date"),
+  status: varchar("status", { enum: ["pending", "paid", "overdue"] }).default("pending").notNull(),
+  pdfUrl: varchar("pdf_url").notNull(), // Supabase storage URL
+  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Relations
@@ -325,6 +363,8 @@ export const insertWaitlistSchema = createInsertSchema(waitlist).omit({ id: true
 export const insertBlockedTimeSchema = createInsertSchema(blockedTimes).omit({ id: true, createdAt: true });
 export const insertVoucherSchema = createInsertSchema(vouchers).omit({ id: true, createdAt: true });
 export const insertCompanyPaymentInfoSchema = createInsertSchema(companyPaymentInfo).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCustomerInvoiceSchema = createInsertSchema(customerInvoices).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCompanyInvoiceSchema = createInsertSchema(companyInvoices).omit({ id: true, createdAt: true, updatedAt: true });
 
 // New simplified types
 export type ClassTemplate = typeof classTemplates.$inferSelect;
@@ -358,3 +398,7 @@ export type Voucher = typeof vouchers.$inferSelect;
 export type InsertVoucher = z.infer<typeof insertVoucherSchema>;
 export type CompanyPaymentInfo = typeof companyPaymentInfo.$inferSelect;
 export type InsertCompanyPaymentInfo = z.infer<typeof insertCompanyPaymentInfoSchema>;
+export type CustomerInvoice = typeof customerInvoices.$inferSelect;
+export type InsertCustomerInvoice = z.infer<typeof insertCustomerInvoiceSchema>;
+export type CompanyInvoice = typeof companyInvoices.$inferSelect;
+export type InsertCompanyInvoice = z.infer<typeof insertCompanyInvoiceSchema>;

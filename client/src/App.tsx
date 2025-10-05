@@ -41,7 +41,7 @@ function Router() {
           <>
             <Route path="/dashboard" component={ClientDashboard} />
             <Route path="/registration/:id" component={RegistrationSuccess} />
-            {user?.role === 'admin' && (
+            {(user?.role === 'admin' || user?.isSuperuser) && (
               <Route path="/admin" component={AdminDashboard} />
             )}
           </>

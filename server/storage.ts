@@ -11,6 +11,8 @@ import {
   classTemplates,
   classes,
   registrations,
+  customerInvoices,
+  companyInvoices,
   type User,
   type UpsertUser,
   type Service,
@@ -35,6 +37,10 @@ import {
   type InsertClass,
   type Registration,
   type InsertRegistration,
+  type CustomerInvoice,
+  type InsertCustomerInvoice,
+  type CompanyInvoice,
+  type InsertCompanyInvoice,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc, asc, sql, count, inArray } from "drizzle-orm";
@@ -43,9 +49,9 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   createUser(user: Partial<User>): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
-  updateUserStripeInfo(id: string, stripeInfo: { stripeCustomerId?: string; stripeSubscriptionId?: string }): Promise<User>;
 
   // Service operations
   getServices(): Promise<Service[]>;
@@ -136,6 +142,20 @@ export interface IStorage {
 
   // Payment information
   getActivePaymentInfo(): Promise<any[]>;
+
+  // Customer invoice operations
+  createCustomerInvoice(data: InsertCustomerInvoice): Promise<CustomerInvoice>;
+  getCustomerInvoices(): Promise<CustomerInvoice[]>;
+  getCustomerInvoice(id: string): Promise<CustomerInvoice | undefined>;
+  updateCustomerInvoice(id: string, data: Partial<CustomerInvoice>): Promise<CustomerInvoice>;
+  getCustomerInvoicesByClient(clientId: string): Promise<CustomerInvoice[]>;
+
+  // Company invoice operations
+  createCompanyInvoice(data: InsertCompanyInvoice): Promise<CompanyInvoice>;
+  getCompanyInvoices(): Promise<CompanyInvoice[]>;
+  getCompanyInvoice(id: string): Promise<CompanyInvoice | undefined>;
+  updateCompanyInvoice(id: string, data: Partial<CompanyInvoice>): Promise<CompanyInvoice>;
+  deleteCompanyInvoice(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -148,6 +168,10 @@ export class DatabaseStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
   }
 
   async createUser(userData: Partial<User>): Promise<User> {
@@ -170,17 +194,6 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async updateUserStripeInfo(id: string, stripeInfo: { stripeCustomerId?: string; stripeSubscriptionId?: string }): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({
-        ...stripeInfo,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, id))
-      .returning();
-    return user;
-  }
 
   // Service operations
   async getServices(): Promise<Service[]> {
@@ -422,7 +435,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(timeSlots.startTime));
   }
 
-  async getBooking(id: string): Promise<(Booking & { client: User; service: Service; instructor: Instructor & { user: User }; timeSlot: TimeSlot }) | undefined> {
+  async getBooking(id: string) {
     const result = await db
       .select()
       .from(bookings)
@@ -432,7 +445,7 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(timeSlots, eq(bookings.timeSlotId, timeSlots.id))
       .where(eq(bookings.id, id));
 
-    return result[0] || undefined;
+    return result[0];
   }
 
   async createBooking(booking: InsertBooking): Promise<Booking> {
@@ -521,7 +534,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(waitlist.id, id));
   }
 
-  async getNextWaitlistUser(timeSlotId: string): Promise<(Waitlist & { client: User }) | null> {
+  async getNextWaitlistUser(timeSlotId: string) {
     const results = await db
       .select()
       .from(waitlist)
@@ -529,8 +542,8 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(waitlist.timeSlotId, timeSlotId), eq(waitlist.isActive, true)))
       .orderBy(asc(waitlist.position))
       .limit(1);
-    
-    return results[0] || null;
+
+    return results[0];
   }
 
   // Blocked time operations
@@ -725,6 +738,16 @@ export class DatabaseStorage implements IStorage {
     return updatedClass;
   }
 
+  async deleteClass(id: string): Promise<void> {
+    console.log(`[storage.deleteClass] Starting deletion for class ${id}`);
+    // First delete all registrations for this class
+    const deletedRegs = await db.delete(registrations).where(eq(registrations.classId, id)).returning();
+    console.log(`[storage.deleteClass] Deleted ${deletedRegs.length} registrations`);
+    // Then delete the class itself
+    const deletedClasses = await db.delete(classes).where(eq(classes.id, id)).returning();
+    console.log(`[storage.deleteClass] Deleted ${deletedClasses.length} classes`);
+  }
+
   // NEW: Registration operations
   async getUserRegistrations(userId: string): Promise<(Registration & { class: Class & { template: ClassTemplate } })[]> {
     const results = await db
@@ -756,6 +779,18 @@ export class DatabaseStorage implements IStorage {
       ...row.registrations,
       client: row.users
     }));
+  }
+
+  async fixClassBookingsCounter(classId: string): Promise<number> {
+    const registrationsList = await this.getClassRegistrations(classId);
+    const actualCount = registrationsList.length;
+
+    await db
+      .update(classes)
+      .set({ currentBookings: actualCount })
+      .where(eq(classes.id, classId));
+
+    return actualCount;
   }
 
   async getRegistration(id: string): Promise<Registration | undefined> {
@@ -870,6 +905,66 @@ export class DatabaseStorage implements IStorage {
 
     console.log(`Deleted ${expiredRegistrations.length} expired registrations`);
     return expiredRegistrations.length;
+  }
+
+  // Customer Invoice operations
+  async createCustomerInvoice(data: InsertCustomerInvoice): Promise<CustomerInvoice> {
+    const [invoice] = await db.insert(customerInvoices).values(data).returning();
+    return invoice;
+  }
+
+  async getCustomerInvoices(): Promise<CustomerInvoice[]> {
+    return await db.select().from(customerInvoices).orderBy(desc(customerInvoices.createdAt));
+  }
+
+  async getCustomerInvoice(id: string): Promise<CustomerInvoice | undefined> {
+    const [invoice] = await db.select().from(customerInvoices).where(eq(customerInvoices.id, id));
+    return invoice;
+  }
+
+  async updateCustomerInvoice(id: string, data: Partial<CustomerInvoice>): Promise<CustomerInvoice> {
+    const [updated] = await db
+      .update(customerInvoices)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(customerInvoices.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getCustomerInvoicesByClient(clientId: string): Promise<CustomerInvoice[]> {
+    return await db
+      .select()
+      .from(customerInvoices)
+      .where(eq(customerInvoices.clientId, clientId))
+      .orderBy(desc(customerInvoices.createdAt));
+  }
+
+  // Company Invoice operations
+  async createCompanyInvoice(data: InsertCompanyInvoice): Promise<CompanyInvoice> {
+    const [invoice] = await db.insert(companyInvoices).values(data).returning();
+    return invoice;
+  }
+
+  async getCompanyInvoices(): Promise<CompanyInvoice[]> {
+    return await db.select().from(companyInvoices).orderBy(desc(companyInvoices.createdAt));
+  }
+
+  async getCompanyInvoice(id: string): Promise<CompanyInvoice | undefined> {
+    const [invoice] = await db.select().from(companyInvoices).where(eq(companyInvoices.id, id));
+    return invoice;
+  }
+
+  async updateCompanyInvoice(id: string, data: Partial<CompanyInvoice>): Promise<CompanyInvoice> {
+    const [updated] = await db
+      .update(companyInvoices)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(companyInvoices.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCompanyInvoice(id: string): Promise<void> {
+    await db.delete(companyInvoices).where(eq(companyInvoices.id, id));
   }
 }
 
