@@ -2,7 +2,8 @@
 node_modules
 
 # Build outputs
-dist
+dist/public
+dist-ssr
 server/public
 
 # Environment variables
