@@ -35,8 +35,9 @@ async function initializeApp() {
   }
 }
 
-// Vercel handler - wraps Express app
-export default async function handler(req: Request, res: Response) {
-  await initializeApp();
-  return app(req as any, res as any);
-}
+// Initialize app immediately (not on first request)
+// This ensures routes are registered before any requests come in
+await initializeApp();
+
+// Export the Express app directly - Vercel will wrap it
+export default app;
