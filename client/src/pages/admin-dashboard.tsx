@@ -122,10 +122,14 @@ export default function AdminDashboard() {
   };
 
   // Data fetching
-  const { data: analytics, isLoading: analyticsLoading, error: analyticsError } = useQuery({
-    queryKey: ['/api/analytics/bookings'],
-    retry: false,
-  });
+  // Analytics - DISABLED (not needed for core functionality)
+  // const { data: analytics, isLoading: analyticsLoading, error: analyticsError } = useQuery({
+  //   queryKey: ['/api/analytics/bookings'],
+  //   retry: false,
+  // });
+  const analytics = null;
+  const analyticsLoading = false;
+  const analyticsError = null;
 
   const { data: allBookings, isLoading: bookingsLoading, error: bookingsError } = useQuery({
     queryKey: ['/api/bookings'],
@@ -153,16 +157,16 @@ export default function AdminDashboard() {
     retry: false,
   });
 
-  // Invoice queries
-  const { data: customerInvoices } = useQuery({
-    queryKey: ['/api/invoices/customer'],
-    retry: false,
-  });
+  // Invoice queries - DISABLED (not needed for core functionality)
+  // const { data: customerInvoices } = useQuery({
+  //   queryKey: ['/api/invoices/customer'],
+  //   retry: false,
+  // });
 
-  const { data: companyInvoices } = useQuery({
-    queryKey: ['/api/invoices/company'],
-    retry: false,
-  });
+  // const { data: companyInvoices } = useQuery({
+  //   queryKey: ['/api/invoices/company'],
+  //   retry: false,
+  // });
 
   // Users query
   const { data: allUsers } = useQuery({
@@ -559,9 +563,6 @@ export default function AdminDashboard() {
             <TabsTrigger value="sessions" data-testid="tab-sessions">
               Tímar
             </TabsTrigger>
-            <TabsTrigger value="costs" data-testid="tab-costs">
-              Kostnaður
-            </TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users">
               Notendur
             </TabsTrigger>
@@ -752,148 +753,6 @@ export default function AdminDashboard() {
           <TabsContent value="costs" className="space-y-6">
             <h2 className="font-serif text-2xl font-bold text-foreground mb-6">
               Kostnaðarstjórnun
-            </h2>
-
-            <Tabs defaultValue="customer-invoices" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="customer-invoices">
-                  Viðskiptavinareikningar
-                </TabsTrigger>
-                <TabsTrigger value="company-invoices">
-                  Fyrirtækjareikningar
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Customer Invoices */}
-              <TabsContent value="customer-invoices" className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-muted-foreground">
-                    Reikningar sendir til viðskiptavina
-                  </p>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Búa til reikning
-                  </Button>
-                </div>
-
-                <Card>
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Reikningsnr.</TableHead>
-                          <TableHead>Viðskiptavinur</TableHead>
-                          <TableHead>Upphæð</TableHead>
-                          <TableHead>Staða</TableHead>
-                          <TableHead>Gjalddagi</TableHead>
-                          <TableHead>Aðgerðir</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {customerInvoices && customerInvoices.length > 0 ? (
-                          customerInvoices.map((invoice: any) => (
-                            <TableRow key={invoice.id}>
-                              <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                              <TableCell>{invoice.clientId}</TableCell>
-                              <TableCell>{invoice.amount?.toLocaleString('is-IS')} kr</TableCell>
-                              <TableCell>
-                                <Badge variant={invoice.status === 'paid' ? 'default' : invoice.status === 'sent' ? 'secondary' : 'outline'}>
-                                  {invoice.status === 'paid' ? 'Greitt' : invoice.status === 'sent' ? 'Sent' : invoice.status === 'draft' ? 'Drög' : 'Afturkallað'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('is-IS') : '-'}
-                              </TableCell>
-                              <TableCell>
-                                <Button variant="ghost" size="sm">
-                                  Skoða
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                              Engir reikningar ennþá
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Company Invoices */}
-              <TabsContent value="company-invoices" className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-muted-foreground">
-                    Kostnaðarreikningar frá birgjum
-                  </p>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Hlaða upp reikningi
-                  </Button>
-                </div>
-
-                <Card>
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Reikningsnr.</TableHead>
-                          <TableHead>Birgir</TableHead>
-                          <TableHead>Flokkur</TableHead>
-                          <TableHead>Upphæð</TableHead>
-                          <TableHead>Dagsetning</TableHead>
-                          <TableHead>Staða</TableHead>
-                          <TableHead>Aðgerðir</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {companyInvoices && companyInvoices.length > 0 ? (
-                          companyInvoices.map((invoice: any) => (
-                            <TableRow key={invoice.id}>
-                              <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                              <TableCell>{invoice.vendor}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline">{invoice.category}</Badge>
-                              </TableCell>
-                              <TableCell>{invoice.amount?.toLocaleString('is-IS')} kr</TableCell>
-                              <TableCell>
-                                {invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString('is-IS') : '-'}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant={invoice.status === 'paid' ? 'default' : invoice.status === 'overdue' ? 'destructive' : 'secondary'}>
-                                  {invoice.status === 'paid' ? 'Greitt' : invoice.status === 'overdue' ? 'Tímabært' : 'Í bið'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2">
-                                  <Button variant="ghost" size="sm">
-                                    Skoða
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                              Engir reikningar ennþá
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </TabsContent>
-
-          <TabsContent value="users" className="space-y-6">
-            <h2 className="font-serif text-2xl font-bold text-foreground mb-6">
               Notendastjórnun
             </h2>
 
