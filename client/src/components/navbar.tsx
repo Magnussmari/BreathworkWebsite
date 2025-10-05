@@ -86,19 +86,21 @@ export default function Navbar() {
 
           {/* User Menu */}
           <div className="flex items-center space-x-4">
-            <Button asChild variant="default" size="sm" data-testid="button-book-now">
-              <Link href="/">Bóka núna</Link>
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 rounded-full" data-testid="user-menu-trigger">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.profileImageUrl} alt="Profile" />
-                    <AvatarFallback>{getInitials(user?.firstName, user?.lastName)}</AvatarFallback>
-                  </Avatar>
+            {user ? (
+              <>
+                <Button asChild variant="default" size="sm" data-testid="button-book-now">
+                  <Link href="/">Bóka núna</Link>
                 </Button>
-              </DropdownMenuTrigger>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="relative h-8 w-8 rounded-full" data-testid="user-menu-trigger">
+                      <Avatar className="h-8 w-8">
+                        <AvatarImage src={user?.profileImageUrl} alt="Profile" />
+                        <AvatarFallback>{getInitials(user?.firstName, user?.lastName)}</AvatarFallback>
+                      </Avatar>
+                    </Button>
+                  </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount data-testid="user-menu-content">
                 <div className="flex items-center justify-start gap-2 p-2">
                   <div className="flex flex-col space-y-1 leading-none">
@@ -154,6 +156,17 @@ export default function Navbar() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+              </>
+            ) : (
+              <>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/login">Skrá inn</Link>
+                </Button>
+                <Button asChild variant="default" size="sm">
+                  <Link href="/register">Búa til aðgang</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>

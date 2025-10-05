@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,7 @@ interface ClassWithTemplate extends Class {
 }
 
 export default function ClassesLanding() {
+  const { user } = useAuth();
   const { data: upcomingClasses, isLoading } = useQuery<ClassWithTemplate[]>({
     queryKey: ["/api/classes/upcoming"],
   });
@@ -61,21 +63,33 @@ export default function ClassesLanding() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button
-                asChild
-                size="lg"
-                className="px-8 py-6 text-lg font-semibold"
-              >
-                <Link href="/login">Skráðu þig inn til að bóka</Link>
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                size="lg"
-                className="px-8 py-6 text-lg font-semibold"
-              >
-                <Link href="/register">Búðu til aðgang</Link>
-              </Button>
+              {user ? (
+                <Button
+                  asChild
+                  size="lg"
+                  className="px-8 py-6 text-lg font-semibold"
+                >
+                  <Link href="/dashboard">Bókanir mínar</Link>
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    asChild
+                    size="lg"
+                    className="px-8 py-6 text-lg font-semibold"
+                  >
+                    <Link href="/login">Skráðu þig inn til að bóka</Link>
+                  </Button>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="lg"
+                    className="px-8 py-6 text-lg font-semibold"
+                  >
+                    <Link href="/register">Búðu til aðgang</Link>
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>

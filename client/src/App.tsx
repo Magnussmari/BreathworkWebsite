@@ -29,8 +29,8 @@ function Router() {
 
   return (
     <div className="min-h-screen bg-background">
-      {isAuthenticated && <Navbar />}
-      
+      <Navbar />
+
       <Switch>
         <Route path="/" component={ClassesLanding} />
         <Route path="/about" component={About} />

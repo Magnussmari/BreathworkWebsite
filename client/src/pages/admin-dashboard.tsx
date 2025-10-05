@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { 
   Dialog, 
   DialogContent, 
@@ -487,6 +488,7 @@ export default function AdminDashboard() {
               Stjórnaðu öndunarverkefninu þínu, þjónustu og bókunum
             </p>
           </div>
+          <ChangePasswordDialog />
         </div>
 
         {/* Analytics Cards */}
