@@ -9,17 +9,15 @@
 
 ---
 
-## ⚠️ CRITICAL: Before Deployment
+## ✅ COMPLETED: API Key Rotation
 
-### 1. Rotate Exposed API Keys
+### Resend API Key - Already Rotated!
 
-The following API key was exposed in git history and **MUST** be rotated:
+✅ **Old key deleted:** `re_XR9wFFit_69iiVhR9Hadogxhi4dvbLK5d`
+✅ **New key generated:** `re_TiyFvyTY_2NtmhbFymMSJ53h9VSV9DDmM`
+✅ **Email updated:** `onboarding@resend.dev` (no DNS required)
 
-#### Resend API Key
-1. Go to https://resend.com/api-keys
-2. Delete the old key: `re_XR9wFFit_69iiVhR9Hadogxhi4dvbLK5d`
-3. Generate a new API key
-4. Update the new key in Vercel environment variables (see below)
+**You can proceed directly to deployment!**
 
 ---
 
@@ -31,27 +29,54 @@ The following API key was exposed in git history and **MUST** be rotated:
 
 2. Add each variable below for **Production, Preview, and Development**:
 
-```
-DATABASE_URL
+**Copy and paste these values directly from your .env file:**
+
+```env
+# Variable: DATABASE_URL
+# Value:
 postgresql://postgres.jwixnfnbinqsrqjlfdet:HVYYoo5q1985%21@aws-1-eu-north-1.pooler.supabase.com:6543/postgres
 
-SUPABASE_URL
+# Variable: SUPABASE_URL
+# Value:
 https://jwixnfnbinqsrqjlfdet.supabase.co
 
-SUPABASE_ANON_KEY
+# Variable: SUPABASE_ANON_KEY
+# Value:
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3aXhuZm5iaW5xc3JxamxmZGV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0ODE2ODcsImV4cCI6MjA3NTA1NzY4N30.wtZPziRPVSAqV6LmzBFMmGtYylE8n8TTZVSmtjj8Hlk
 
-RESEND_API_KEY
-[NEW KEY FROM STEP 1 - Rotate first!]
+# Variable: RESEND_API_KEY
+# Value (✅ Already rotated - use this new key):
+re_TiyFvyTY_2NtmhbFymMSJ53h9VSV9DDmM
 
-FROM_EMAIL
-bookings@breathwork.is
+# Variable: FROM_EMAIL
+# Value (✅ Updated to use Resend's test domain - no DNS required):
+onboarding@resend.dev
 
-SESSION_SECRET
+# Variable: SESSION_SECRET
+# Value:
 FvLou6egyS/8Cm1RqpLDGcRh02RmaV/UK5Krhwmf3FU=
 
-NODE_ENV
+# Variable: NODE_ENV
+# Value:
 production
+```
+
+**Quick Copy Format (for Vercel UI):**
+
+For each variable, click "Add New" and paste:
+
+1. **DATABASE_URL** = `postgresql://postgres.jwixnfnbinqsrqjlfdet:HVYYoo5q1985%21@aws-1-eu-north-1.pooler.supabase.com:6543/postgres`
+2. **SUPABASE_URL** = `https://jwixnfnbinqsrqjlfdet.supabase.co`
+3. **SUPABASE_ANON_KEY** = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3aXhuZm5iaW5xc3JxamxmZGV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0ODE2ODcsImV4cCI6MjA3NTA1NzY4N30.wtZPziRPVSAqV6LmzBFMmGtYylE8n8TTZVSmtjj8Hlk`
+4. **RESEND_API_KEY** = `re_TiyFvyTY_2NtmhbFymMSJ53h9VSV9DDmM`
+5. **FROM_EMAIL** = `onboarding@resend.dev`
+6. **SESSION_SECRET** = `FvLou6egyS/8Cm1RqpLDGcRh02RmaV/UK5Krhwmf3FU=`
+7. **NODE_ENV** = `production`
+
+**Important:**
+- ✅ Resend API key has been rotated (new key: re_TiyFvyTY...)
+- ✅ FROM_EMAIL uses Resend's test domain (works immediately, no DNS setup)
+- Select **Production**, **Preview**, and **Development** for each variable
 ```
 
 ### Option 2: Vercel CLI
@@ -68,13 +93,13 @@ vercel env add SUPABASE_URL production
 # Paste: https://jwixnfnbinqsrqjlfdet.supabase.co
 
 vercel env add SUPABASE_ANON_KEY production
-# Paste: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+# Paste: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3aXhuZm5iaW5xc3JxamxmZGV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0ODE2ODcsImV4cCI6MjA3NTA1NzY4N30.wtZPziRPVSAqV6LmzBFMmGtYylE8n8TTZVSmtjj8Hlk
 
 vercel env add RESEND_API_KEY production
-# Paste: [NEW ROTATED KEY]
+# Paste: re_TiyFvyTY_2NtmhbFymMSJ53h9VSV9DDmM
 
 vercel env add FROM_EMAIL production
-# Paste: bookings@breathwork.is
+# Paste: onboarding@resend.dev
 
 vercel env add SESSION_SECRET production
 # Paste: FvLou6egyS/8Cm1RqpLDGcRh02RmaV/UK5Krhwmf3FU=
