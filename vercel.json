@@ -1,24 +1,10 @@
 {
-  "version": 2,
   "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "installCommand": "npm install",
-  "framework": null,
   "outputDirectory": "dist/public",
-  "builds": [
-    {
-      "src": "dist/index.js",
-      "use": "@vercel/node"
-    }
-  ],
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/dist/index.js"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/dist/public/index.html"
+      "source": "/api/:path*",
+      "destination": "/api"
     }
   ]
 }
