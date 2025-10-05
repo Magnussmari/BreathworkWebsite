@@ -47,7 +47,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Setup routes and middleware for both local and Vercel deployment
+// Setup routes and middleware for local development
 (async () => {
   const server = await registerRoutes(app);
 
@@ -56,21 +56,19 @@ app.use((req, res, next) => {
     const message = err.message || "Internal Server Error";
 
     res.status(status).json({ message });
+    throw err;
   });
 
-  // Setup static serving in production
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else if (app.get("env") === "development") {
+  // Setup vite/static serving
+  if (app.get("env") === "development") {
     await setupVite(app, server);
+  } else {
+    serveStatic(app);
   }
 
-  // Only start server if running directly (not imported by Vercel)
-  // Vercel doesn't need us to listen on a port
-  if (process.env.VERCEL !== '1' && import.meta.url === `file://${process.argv[1]}`) {
-    const port = parseInt(process.env.PORT || '5000', 10);
-    server.listen(port, () => {
-      log(`serving on port ${port}`);
-    });
-  }
+  // Start server for local development
+  const port = parseInt(process.env.PORT || '5000', 10);
+  server.listen(port, () => {
+    log(`serving on port ${port}`);
+  });
 })();

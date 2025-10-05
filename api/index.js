@@ -1,1 +1,1 @@
-export { app as default } from '../dist/index.js';
+export { default } from '../dist/vercel.js';
