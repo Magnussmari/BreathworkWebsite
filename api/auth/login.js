@@ -1,16 +1,18 @@
-import type { Request, Response } from 'express';
-import { storage } from '../../server/storage';
-import { verifyPassword, createSession } from '../../server/supabaseAuth';
-import { loginSchema } from '@shared/schema';
-import { z } from 'zod';
-
-export default async function handler(req: Request, res: Response) {
+module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
   try {
-    const { email, password } = loginSchema.parse(req.body);
+    // Dynamic import for ESM modules
+    const { storage } = await import('../../dist/storage.js');
+    const { verifyPassword, createSession } = await import('../../dist/supabaseAuth.js');
+
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password required" });
+    }
 
     // Get user by email
     const user = await storage.getUserByEmail(email);
@@ -33,9 +35,6 @@ export default async function handler(req: Request, res: Response) {
     res.json({ user: { id: user.id, email: user.email, role: user.role } });
   } catch (error) {
     console.error("Login error:", error);
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: "Invalid input", errors: error.errors });
-    }
     res.status(500).json({ message: "Login failed" });
   }
-}
+};
