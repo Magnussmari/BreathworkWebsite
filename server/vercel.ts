@@ -18,26 +18,31 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
-// Initialize app on first request
-let initialized = false;
-async function initializeApp() {
-  if (!initialized) {
-    await registerRoutes(app);
+// Lazy initialization promise to ensure routes are registered only once
+let initPromise: Promise<void> | null = null;
 
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      res.status(status).json({ message });
-    });
+async function ensureInitialized() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      await registerRoutes(app);
 
-    serveStatic(app);
-    initialized = true;
+      app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+        const status = err.status || err.statusCode || 500;
+        const message = err.message || "Internal Server Error";
+        res.status(status).json({ message });
+      });
+
+      serveStatic(app);
+    })();
   }
+  await initPromise;
 }
 
-// Initialize app immediately (not on first request)
-// This ensures routes are registered before any requests come in
-await initializeApp();
+// Middleware to ensure initialization before handling requests
+app.use(async (_req, _res, next) => {
+  await ensureInitialized();
+  next();
+});
 
-// Export the Express app directly - Vercel will wrap it
+// Export the Express app - Vercel will wrap it
 export default app;
