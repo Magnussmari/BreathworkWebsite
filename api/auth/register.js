@@ -1,4 +1,4 @@
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
@@ -44,4 +44,4 @@ module.exports = async (req, res) => {
     console.error("Registration error:", error);
     res.status(500).json({ message: "Registration failed" });
   }
-};
+}
