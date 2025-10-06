@@ -2,7 +2,7 @@ export default async function handler(req, res) {
   try {
     const { storage } = await import('../../../dist/storage.js');
     const { verifySession } = await import('../../../dist/supabaseAuth.js');
-    const { sendRegistrationConfirmation } = await import('../../../dist/email.js');
+    const { sendRegistrationConfirmation } = await import('../../../dist/index.js');
     const { id } = req.query;
 
     if (!id) {
