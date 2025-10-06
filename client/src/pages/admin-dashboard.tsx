@@ -131,53 +131,53 @@ export default function AdminDashboard() {
   const analyticsLoading = false;
   const analyticsError = null;
 
-  const { data: allBookings, isLoading: bookingsLoading, error: bookingsError } = useQuery({
-    queryKey: ['/api/bookings'],
-    retry: false,
-  });
-
-  const { data: allServices, isLoading: servicesLoading, error: servicesError } = useQuery({
-    queryKey: ['/api/services/all'],
-    queryFn: async () => {
-      // Fetch all services including inactive ones for admin
-      const response = await fetch('/api/services');
-      if (!response.ok) throw new Error('Failed to fetch services');
-      return response.json();
-    },
-    retry: false,
-  });
-
-  const { data: instructors, isLoading: instructorsLoading, error: instructorsError } = useQuery({
-    queryKey: ['/api/instructors/all'],
-    queryFn: async () => {
-      const response = await fetch('/api/instructors');
-      if (!response.ok) throw new Error('Failed to fetch instructors');
-      return response.json();
-    },
-    retry: false,
-  });
-
-  // Invoice queries - DISABLED (not needed for core functionality)
-  // const { data: customerInvoices } = useQuery({
-  //   queryKey: ['/api/invoices/customer'],
+  // DISABLED - non-essential admin features to reduce serverless function count
+  // const { data: allBookings, isLoading: bookingsLoading, error: bookingsError } = useQuery({
+  //   queryKey: ['/api/bookings'],
   //   retry: false,
   // });
+  const allBookings = null;
+  const bookingsLoading = false;
+  const bookingsError = null;
 
-  // const { data: companyInvoices } = useQuery({
-  //   queryKey: ['/api/invoices/company'],
+  // const { data: allServices, isLoading: servicesLoading, error: servicesError } = useQuery({
+  //   queryKey: ['/api/services/all'],
+  //   queryFn: async () => {
+  //     const response = await fetch('/api/services');
+  //     if (!response.ok) throw new Error('Failed to fetch services');
+  //     return response.json();
+  //   },
   //   retry: false,
   // });
+  const allServices = null;
+  const servicesLoading = false;
+  const servicesError = null;
 
-  // Users query
-  const { data: allUsers } = useQuery({
-    queryKey: ['/api/users'],
-    retry: false,
-  });
+  // const { data: instructors, isLoading: instructorsLoading, error: instructorsError } = useQuery({
+  //   queryKey: ['/api/instructors/all'],
+  //   queryFn: async () => {
+  //     const response = await fetch('/api/instructors');
+  //     if (!response.ok) throw new Error('Failed to fetch instructors');
+  //     return response.json();
+  //   },
+  //   retry: false,
+  // });
+  const instructors = null;
+  const instructorsLoading = false;
+  const instructorsError = null;
 
-  const { data: classTemplates } = useQuery({
-    queryKey: ['/api/class-templates'],
-    retry: false,
-  });
+  // DISABLED - non-essential admin features
+  // const { data: allUsers } = useQuery({
+  //   queryKey: ['/api/users'],
+  //   retry: false,
+  // });
+  const allUsers = null;
+
+  // const { data: classTemplates } = useQuery({
+  //   queryKey: ['/api/class-templates'],
+  //   retry: false,
+  // });
+  const classTemplates = null;
 
   const { data: classesData, isLoading: classesLoading, error: classesError } = useQuery({
     queryKey: ['/api/classes?type=all'],
