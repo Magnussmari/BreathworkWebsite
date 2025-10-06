@@ -33,9 +33,11 @@ export default function ClientDashboard() {
 
   const cancelMutation = useMutation({
     mutationFn: async (registrationId: string) => {
-      const response = await fetch(`/api/registrations/${registrationId}/cancel`, {
+      const response = await fetch(`/api/registrations/${registrationId}`, {
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({ action: 'cancel' }),
       });
       if (!response.ok) throw new Error('Failed to cancel');
       return response.json();

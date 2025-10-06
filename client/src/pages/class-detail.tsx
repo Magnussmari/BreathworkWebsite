@@ -112,10 +112,11 @@ export default function ClassDetail() {
     mutationFn: async () => {
       if (!reservationId) throw new Error("No reservation");
 
-      const response = await fetch(`/api/registrations/${reservationId}/confirm`, {
+      const response = await fetch(`/api/registrations/${reservationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify({ action: "confirm" }),
       });
 
       if (!response.ok) {

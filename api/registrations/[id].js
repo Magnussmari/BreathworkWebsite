@@ -57,8 +57,60 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PATCH') {
-      // PATCH /api/registrations/:id - Admin update only
-      // Other PATCH operations (confirm, cancel, confirm-transfer) use nested routes
+      // Get registration first for all PATCH operations
+      const registration = await storage.getRegistration(id);
+
+      if (!registration) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+
+      // Check action in request body or query param
+      const action = req.body.action || req.query.action;
+
+      if (action === 'confirm') {
+        // PATCH /api/registrations/:id with action=confirm - Confirm reservation
+        if (registration.clientId !== user.id) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+
+        if (registration.status !== 'reserved') {
+          return res.status(400).json({ message: "Can only confirm reserved registrations" });
+        }
+
+        const updated = await storage.updateRegistration(id, {
+          status: 'confirmed',
+        });
+
+        return res.json(updated);
+      }
+
+      if (action === 'confirm-transfer') {
+        // PATCH /api/registrations/:id with action=confirm-transfer - User confirms bank transfer
+        if (registration.clientId !== user.id) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+
+        const updated = await storage.updateRegistration(id, {
+          userConfirmedTransfer: true,
+        });
+
+        return res.json(updated);
+      }
+
+      if (action === 'cancel') {
+        // PATCH /api/registrations/:id with action=cancel - Cancel registration
+        if (registration.clientId !== user.id && !isAdminOrSuperuser) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+
+        const updated = await storage.updateRegistration(id, {
+          status: 'cancelled',
+        });
+
+        return res.json(updated);
+      }
+
+      // Default PATCH (admin update, no action specified)
       if (!isAdminOrSuperuser) {
         return res.status(403).json({ message: "Admin access required" });
       }

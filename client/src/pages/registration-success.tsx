@@ -33,10 +33,11 @@ export default function RegistrationSuccess() {
 
   const confirmTransferMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/registrations/${params?.id}/confirm-transfer`, {
+      const response = await fetch(`/api/registrations/${params?.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify({ action: "confirm-transfer" }),
       });
       if (!response.ok) throw new Error("Failed to confirm transfer");
       return response.json();
