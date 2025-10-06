@@ -1,6 +1,11 @@
 export default async function handler(req, res) {
   try {
     const { storage } = await import('../../dist/storage.js');
+    const { id } = req.query;
+
+    if (!id) {
+      return res.status(400).json({ message: "Class ID is required" });
+    }
 
     // Helper to parse cookies
     const parseCookies = () => {
@@ -38,43 +43,31 @@ export default async function handler(req, res) {
     };
 
     if (req.method === 'GET') {
-      const { type } = req.query;
+      // GET /api/classes/:id - Public route to get specific class
+      const classItem = await storage.getClass(id);
 
-      // GET /api/classes?type=upcoming - Public upcoming classes
-      if (type === 'upcoming') {
-        const classes = await storage.getUpcomingClasses();
-        return res.json(classes);
+      if (!classItem) {
+        return res.status(404).json({ message: "Class not found" });
       }
 
-      // GET /api/classes?type=all - Admin all classes
-      if (type === 'all') {
-        await authenticateAdmin();
-        const classes = await storage.getAllClasses();
-        return res.json(classes);
-      }
-
-      // Default: upcoming classes
-      const classes = await storage.getUpcomingClasses();
-      return res.json(classes);
+      return res.json(classItem);
     }
 
-    if (req.method === 'POST') {
-      // POST /api/classes - Create new class (admin only)
+    if (req.method === 'DELETE') {
+      // DELETE /api/classes/:id - Admin only
       await authenticateAdmin();
 
-      // Validate and transform the request body
-      const { insertClassSchema } = await import('../../dist/index.js');
-      const validated = insertClassSchema.parse(req.body);
+      console.log(`[delete-class] Deleting class ${id}`);
+      await storage.deleteClass(id);
+      console.log(`[delete-class] Successfully deleted class ${id}`);
 
-      const newClass = await storage.createClass(validated);
-      return res.json(newClass);
+      return res.json({ message: "Class deleted successfully" });
     }
 
     return res.status(405).json({ message: 'Method not allowed' });
   } catch (error) {
-    console.error("Classes error:", error);
+    console.error("Class ID error:", error);
     console.error("Error stack:", error.stack);
-    console.error("Error details:", JSON.stringify(error, null, 2));
 
     if (error.message === 'Unauthorized') {
       return res.status(401).json({ message: "Unauthorized" });
@@ -85,9 +78,8 @@ export default async function handler(req, res) {
     }
 
     return res.status(500).json({
-      message: "Failed to process classes request",
+      message: "Failed to process class request",
       error: error.message,
-      details: error.issues || error.toString()
     });
   }
 }

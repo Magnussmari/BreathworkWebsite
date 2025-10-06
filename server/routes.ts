@@ -639,19 +639,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // NEW: Class routes (public + admin)
-  app.get('/api/classes/all', isAuthenticated, async (req: AuthRequest, res) => {
+  // Consolidated route with query parameter support (matches Vercel serverless pattern)
+  app.get('/api/classes', async (req: AuthRequest, res) => {
     try {
-      const user = await storage.getUser(req.user!.id);
+      const { type } = req.query;
 
-      if (!isAdminOrSuperuser(user)) {
-        return res.status(403).json({ message: "Admin access required" });
+      // GET /api/classes?type=upcoming - Public upcoming classes
+      if (type === 'upcoming') {
+        const classes = await storage.getUpcomingClasses();
+        return res.json(classes);
       }
 
-      const classes = await storage.getAllClasses();
-      res.json(classes);
+      // GET /api/classes?type=all - Admin all classes
+      if (type === 'all') {
+        const user = await storage.getUser(req.user?.id);
+        if (!user || !isAdminOrSuperuser(user)) {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        const classes = await storage.getAllClasses();
+        return res.json(classes);
+      }
+
+      // Default: upcoming classes (for backwards compatibility)
+      const classes = await storage.getUpcomingClasses();
+      return res.json(classes);
     } catch (error) {
-      console.error("Error fetching all classes:", error);
-      res.status(500).json({ message: "Failed to fetch all classes" });
+      console.error("Error fetching classes:", error);
+      res.status(500).json({ message: "Failed to fetch classes" });
     }
   });
 
@@ -692,16 +706,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fixing counters:", error);
       res.status(500).json({ message: "Failed to fix counters" });
-    }
-  });
-
-  app.get('/api/classes/upcoming', async (req, res) => {
-    try {
-      const classes = await storage.getUpcomingClasses();
-      res.json(classes);
-    } catch (error) {
-      console.error("Error fetching upcoming classes:", error);
-      res.status(500).json({ message: "Failed to fetch upcoming classes" });
     }
   });
 

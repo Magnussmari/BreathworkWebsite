@@ -1,6 +1,11 @@
 export default async function handler(req, res) {
   try {
-    const { storage } = await import('../../dist/storage.js');
+    const { storage } = await import('../../../dist/storage.js');
+    const { id } = req.query;
+
+    if (!id) {
+      return res.status(400).json({ message: "Class ID is required" });
+    }
 
     // Helper to parse cookies
     const parseCookies = () => {
@@ -19,7 +24,7 @@ export default async function handler(req, res) {
 
     // Helper to authenticate admin
     const authenticateAdmin = async () => {
-      const { verifySession } = await import('../../dist/supabaseAuth.js');
+      const { verifySession } = await import('../../../dist/supabaseAuth.js');
       const cookies = parseCookies();
       const token = cookies['session_token'];
 
@@ -38,43 +43,20 @@ export default async function handler(req, res) {
     };
 
     if (req.method === 'GET') {
-      const { type } = req.query;
-
-      // GET /api/classes?type=upcoming - Public upcoming classes
-      if (type === 'upcoming') {
-        const classes = await storage.getUpcomingClasses();
-        return res.json(classes);
-      }
-
-      // GET /api/classes?type=all - Admin all classes
-      if (type === 'all') {
-        await authenticateAdmin();
-        const classes = await storage.getAllClasses();
-        return res.json(classes);
-      }
-
-      // Default: upcoming classes
-      const classes = await storage.getUpcomingClasses();
-      return res.json(classes);
-    }
-
-    if (req.method === 'POST') {
-      // POST /api/classes - Create new class (admin only)
+      // GET /api/classes/:id/registrations - Admin only
       await authenticateAdmin();
 
-      // Validate and transform the request body
-      const { insertClassSchema } = await import('../../dist/index.js');
-      const validated = insertClassSchema.parse(req.body);
+      const registrationsList = await storage.getClassRegistrations(id);
+      console.log(`[registrations] Class ${id}: Found ${registrationsList.length} registrations`);
+      console.log('[registrations] Data:', JSON.stringify(registrationsList, null, 2));
 
-      const newClass = await storage.createClass(validated);
-      return res.json(newClass);
+      return res.json(registrationsList);
     }
 
     return res.status(405).json({ message: 'Method not allowed' });
   } catch (error) {
-    console.error("Classes error:", error);
+    console.error("Class registrations error:", error);
     console.error("Error stack:", error.stack);
-    console.error("Error details:", JSON.stringify(error, null, 2));
 
     if (error.message === 'Unauthorized') {
       return res.status(401).json({ message: "Unauthorized" });
@@ -85,9 +67,8 @@ export default async function handler(req, res) {
     }
 
     return res.status(500).json({
-      message: "Failed to process classes request",
+      message: "Failed to fetch registrations",
       error: error.message,
-      details: error.issues || error.toString()
     });
   }
 }
