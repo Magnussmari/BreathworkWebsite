@@ -1,5 +1,7 @@
 import { Resend } from 'resend';
 import type { Registration, Class, ClassTemplate, User } from '@shared/schema';
+import { sanitizeHtml, sanitizeText, sanitizeEmail, sanitizeNumeric } from './utils/sanitizer';
+import { logger } from './utils/logger';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM_EMAIL = process.env.FROM_EMAIL || 'bookings@breathwork.is';
@@ -59,17 +61,17 @@ export async function sendRegistrationConfirmation(data: RegistrationEmailData):
 
     <h2 style="color: #667eea; margin-top: 0;">Bókun þín hefur verið staðfest! ✓</h2>
 
-    <p>Góðan daginn ${user.firstName || ''},</p>
+    <p>Góðan daginn ${sanitizeText(user.firstName || '')},</p>
 
     <p>Þú hefur skráð þig í öndunaræfingu. Hér að neðan eru allar upplýsingar um tímann þinn:</p>
 
     <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 25px 0;">
-      <h3 style="margin-top: 0; color: #667eea; font-size: 20px;">${classItem.template.name}</h3>
+      <h3 style="margin-top: 0; color: #667eea; font-size: 20px;">${sanitizeHtml(classItem.template.name)}</h3>
 
       <table style="width: 100%; border-collapse: collapse;">
         <tr>
           <td style="padding: 8px 0; color: #666;"><strong>Bókunarnúmer:</strong></td>
-          <td style="padding: 8px 0; text-align: right;">${registration.paymentReference || registration.id.substring(0, 10).toUpperCase()}</td>
+          <td style="padding: 8px 0; text-align: right;">${sanitizeText(registration.paymentReference || registration.id.substring(0, 10).toUpperCase())}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #666;"><strong>Dagsetning:</strong></td>
@@ -81,7 +83,7 @@ export async function sendRegistrationConfirmation(data: RegistrationEmailData):
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #666;"><strong>Staðsetning:</strong></td>
-          <td style="padding: 8px 0; text-align: right;">${classItem.location}</td>
+          <td style="padding: 8px 0; text-align: right;">${sanitizeText(classItem.location)}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #666; border-top: 2px solid #e0e0e0; padding-top: 15px;"><strong>Upphæð:</strong></td>
@@ -97,19 +99,19 @@ export async function sendRegistrationConfirmation(data: RegistrationEmailData):
       <table style="width: 100%; margin-top: 15px;">
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Banki:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404;">${paymentInfo.bankName}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404;">${sanitizeText(paymentInfo.bankName)}</td>
         </tr>
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Reikningsnúmer:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${paymentInfo.accountNumber}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${sanitizeText(paymentInfo.accountNumber)}</td>
         </tr>
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Kennitala:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404;">${paymentInfo.companyName}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404;">${sanitizeText(paymentInfo.companyName)}</td>
         </tr>
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Tilvitnun:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${registration.paymentReference || registration.id.substring(0, 10).toUpperCase()}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${sanitizeText(registration.paymentReference || registration.id.substring(0, 10).toUpperCase())}</td>
         </tr>
       </table>
 
@@ -128,7 +130,7 @@ export async function sendRegistrationConfirmation(data: RegistrationEmailData):
 
     <div style="margin: 30px 0; padding-top: 20px; border-top: 2px solid #e0e0e0;">
       <h3 style="color: #333;">Um öndunaræfinguna</h3>
-      <p style="color: #666; line-height: 1.8;">${classItem.template.description}</p>
+      <p style="color: #666; line-height: 1.8;">${sanitizeHtml(classItem.template.description)}</p>
     </div>
 
     <p style="margin-top: 30px; color: #666;">
@@ -149,15 +151,15 @@ export async function sendRegistrationConfirmation(data: RegistrationEmailData):
 
     await resend.emails.send({
       from: `Breathwork <${FROM_EMAIL}>`,
-      to: [user.email],
-      subject: `Bókun staðfest - ${classItem.template.name} - ${formattedDate}`,
+      to: [sanitizeEmail(user.email)],
+      subject: `Bókun staðfest - ${sanitizeText(classItem.template.name)} - ${formattedDate}`,
       html: emailHtml,
     });
 
-    console.log(`✓ Confirmation email sent to ${user.email}`);
+    logger.info("Confirmation email sent", { email: user.email });
     return true;
   } catch (error) {
-    console.error('Failed to send confirmation email:', error);
+    logger.error('Failed to send confirmation email', { error: error.message });
     return false;
   }
 }
@@ -194,7 +196,7 @@ export async function sendPaymentReminder(data: RegistrationEmailData): Promise<
       <p style="color: #856404; margin: 10px 0;"><strong>Bókunarnúmer: ${registration.paymentReference || registration.id.substring(0, 10).toUpperCase()}</strong></p>
     </div>
 
-    <p>Góðan daginn ${user.firstName || ''},</p>
+    <p>Góðan daginn ${sanitizeText(user.firstName || '')},</p>
 
     <p>Við höfum ekki enn móttekið greiðslu fyrir bókun þína.</p>
 

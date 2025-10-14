@@ -17,7 +17,7 @@ export default function Checkout() {
   const urlParams = new URLSearchParams(location.split('?')[1]);
   const bookingId = urlParams.get('bookingId');
 
-  const { data: booking, isLoading: bookingLoading, error } = useQuery({
+  const { data: booking, isLoading: bookingLoading, error } = useQuery<any>({
     queryKey: [`/api/bookings/${bookingId}`],
     enabled: !!bookingId,
     retry: false,

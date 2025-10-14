@@ -452,15 +452,15 @@ export default function AdminDashboard() {
     return aTime - bTime;
   }) || [];
 
-  const todayBookings = allBookings?.filter((booking: any) => {
+  const todayBookings = allBookings ? allBookings.filter((booking: any) => {
     const bookingDate = new Date(booking.timeSlots.startTime);
     const today = new Date();
     return bookingDate.toDateString() === today.toDateString();
-  }) || [];
+  }) : [];
 
-  const pendingBookings = allBookings?.filter((booking: any) => 
+  const pendingBookings = allBookings ? allBookings.filter((booking: any) =>
     booking.bookings.status === 'pending'
-  ) || [];
+  ) : [];
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -585,7 +585,7 @@ export default function AdminDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {allBookings?.slice(0, 5).map((booking: any) => (
+                    {allBookings ? allBookings.slice(0, 5).map((booking: any) => (
                       <div key={booking.bookings.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                         <div className="flex-1">
                           <div className="font-medium text-sm">{booking.services.name}</div>
@@ -595,7 +595,11 @@ export default function AdminDashboard() {
                         </div>
                         {getStatusBadge(booking.bookings.status)}
                       </div>
-                    ))}
+                    )) : (
+                      <div className="text-center py-4 text-muted-foreground">
+                        Feature disabled
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -612,19 +616,19 @@ export default function AdminDashboard() {
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Öll þjónusta</span>
                       <Badge variant="secondary" data-testid="total-services-count">
-                        {allServices?.length || 0}
+                        {allServices ? allServices.length : 0}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Virk þjónusta</span>
                       <Badge variant="default" data-testid="active-services-count">
-                        {allServices?.filter((s: any) => s.isActive)?.length || 0}
+                        {allServices ? allServices.filter((s: any) => s.isActive).length : 0}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Allir leiðbeinendur</span>
                       <Badge variant="secondary" data-testid="total-instructors-count">
-                        {instructors?.length || 0}
+                        {instructors ? instructors.length : 0}
                       </Badge>
                     </div>
                   </div>
@@ -771,7 +775,7 @@ export default function AdminDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {allUsers?.filter((u: any) => u.isSuperuser || u.role === 'admin').map((user: any) => (
+                      {allUsers ? allUsers.filter((u: any) => u.isSuperuser || u.role === 'admin').map((user: any) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium">
                             {user.firstName} {user.lastName}
@@ -786,7 +790,13 @@ export default function AdminDashboard() {
                             <Badge variant="outline">Virkur</Badge>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )) : (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-4 text-muted-foreground">
+                            Feature disabled
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -808,7 +818,7 @@ export default function AdminDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {allUsers?.filter((u: any) => !u.isSuperuser && u.role !== 'admin').map((user: any) => (
+                      {allUsers ? allUsers.filter((u: any) => !u.isSuperuser && u.role !== 'admin').map((user: any) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium">
                             {user.firstName} {user.lastName}
@@ -823,7 +833,13 @@ export default function AdminDashboard() {
                             {user.createdAt ? new Date(user.createdAt).toLocaleDateString('is-IS') : '-'}
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )) : (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-4 text-muted-foreground">
+                            Feature disabled
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -851,7 +867,7 @@ export default function AdminDashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allBookings?.slice(0, 20).map((booking: any) => (
+                    {allBookings ? allBookings.slice(0, 20).map((booking: any) => (
                       <TableRow key={booking.bookings.id} data-testid={`booking-row-${booking.bookings.id}`}>
                         <TableCell>
                           <div>
@@ -879,7 +895,13 @@ export default function AdminDashboard() {
                         </TableCell>
                         <TableCell>{booking.services.price} ISK</TableCell>
                       </TableRow>
-                    ))}
+                    )) : (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          Feature disabled
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -916,7 +938,7 @@ export default function AdminDashboard() {
                 <CardContent className="p-4 text-center">
                   <BookOpen className="h-8 w-8 text-green-600 mx-auto mb-2" />
                   <div className="text-2xl font-bold text-foreground" data-testid="analytics-avg-price">
-                    {allServices?.length > 0 
+                    {allServices && allServices.length > 0
                       ? Math.round(allServices.reduce((sum: number, s: any) => sum + parseFloat(s.price), 0) / allServices.length)
                       : 0
                     } ISK
@@ -1143,11 +1165,13 @@ export default function AdminDashboard() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {classTemplates?.map((template: any) => (
+                          {classTemplates ? classTemplates.map((template: any) => (
                             <SelectItem key={template.id} value={template.id}>
                               {template.name} ({template.duration} min • {template.price} ISK)
                             </SelectItem>
-                          ))}
+                          )) : (
+                            <SelectItem value="none" disabled>No templates available</SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -1317,32 +1341,59 @@ export default function AdminDashboard() {
                           {format(new Date(registration.createdAt), 'MMM d, yyyy')}
                         </TableCell>
                         <TableCell>
-                          {registration.paymentStatus !== 'paid' && (
+                          <div className="flex items-center gap-2">
+                            {registration.paymentStatus !== 'paid' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  try {
+                                    await apiRequest("PATCH", `/api/registrations/${registration.id}`, {
+                                      paymentStatus: 'paid'
+                                    });
+                                    queryClient.invalidateQueries({ queryKey: ['/api/classes', selectedClassId, 'registrations'] });
+                                    toast({
+                                      title: "Greiðsla staðfest",
+                                      description: "Greiðsla hefur verið merkt sem greidd",
+                                    });
+                                  } catch (error) {
+                                    toast({
+                                      title: "Villa",
+                                      description: "Ekki tókst að staðfesta greiðslu",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                Staðfesta greiðslu
+                              </Button>
+                            )}
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="destructive"
                               onClick={async () => {
-                                try {
-                                  await apiRequest("PATCH", `/api/registrations/${registration.id}`, {
-                                    paymentStatus: 'paid'
-                                  });
-                                  queryClient.invalidateQueries({ queryKey: ['/api/classes', selectedClassId, 'registrations'] });
-                                  toast({
-                                    title: "Greiðsla staðfest",
-                                    description: "Greiðsla hefur verið merkt sem greidd",
-                                  });
-                                } catch (error) {
-                                  toast({
-                                    title: "Villa",
-                                    description: "Ekki tókst að staðfesta greiðslu",
-                                    variant: "destructive",
-                                  });
+                                if (confirm(`Ertu viss um að þú viljir eyða þessari skráningu?\n\n${registration.client.firstName} ${registration.client.lastName}\n${registration.client.email}\n\nViðvörun: Þetta mun losa plássið fyrir aðra!`)) {
+                                  try {
+                                    await apiRequest("DELETE", `/api/registrations/${registration.id}`);
+                                    queryClient.invalidateQueries({ queryKey: ['/api/classes', selectedClassId, 'registrations'] });
+                                    queryClient.invalidateQueries({ queryKey: ['/api/classes?type=all'] });
+                                    toast({
+                                      title: "Skráning eytt",
+                                      description: "Skráningunni hefur verið eytt og plássið losað",
+                                    });
+                                  } catch (error) {
+                                    toast({
+                                      title: "Villa",
+                                      description: "Ekki tókst að eyða skráningu",
+                                      variant: "destructive",
+                                    });
+                                  }
                                 }
                               }}
                             >
-                              Staðfesta greiðslu
+                              Eyða
                             </Button>
-                          )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

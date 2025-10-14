@@ -125,30 +125,30 @@ export default function StaffDashboard() {
   }
 
   const now = new Date();
-  const todayBookings = bookings?.filter((booking: any) => {
+  const todayBookings = (bookings && Array.isArray(bookings)) ? bookings.filter((booking: any) => {
     const bookingDate = new Date(booking.timeSlots.startTime);
     return (
       bookingDate.toDateString() === now.toDateString() &&
       booking.bookings.status !== 'cancelled'
     );
-  }) || [];
+  }) : [];
 
-  const upcomingBookings = bookings?.filter((booking: any) => {
+  const upcomingBookings = (bookings && Array.isArray(bookings)) ? bookings.filter((booking: any) => {
     const bookingDate = new Date(booking.timeSlots.startTime);
     return (
       bookingDate > now &&
       booking.bookings.status !== 'cancelled' &&
       booking.bookings.status !== 'completed'
     );
-  }) || [];
+  }) : [];
 
-  const pendingBookings = bookings?.filter((booking: any) => 
+  const pendingBookings = (bookings && Array.isArray(bookings)) ? bookings.filter((booking: any) =>
     booking.bookings.status === 'pending'
-  ) || [];
+  ) : [];
 
-  const completedBookings = bookings?.filter((booking: any) => 
+  const completedBookings = (bookings && Array.isArray(bookings)) ? bookings.filter((booking: any) =>
     booking.bookings.status === 'completed'
-  ) || [];
+  ) : [];
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -448,7 +448,7 @@ export default function StaffDashboard() {
                         <div key={i} className="animate-pulse bg-muted h-8 rounded"></div>
                       ))}
                     </div>
-                  ) : availability && availability.length > 0 ? (
+                  ) : availability && Array.isArray(availability) && availability.length > 0 ? (
                     <div className="space-y-3" data-testid="availability-list">
                       {availability.map((slot: any) => {
                         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

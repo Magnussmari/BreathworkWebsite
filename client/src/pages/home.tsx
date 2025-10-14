@@ -23,11 +23,11 @@ export default function Home() {
     queryKey: ['/api/bookings'],
   });
 
-  const upcomingBookings = userBookings?.filter((booking: any) => {
+  const upcomingBookings = (userBookings && Array.isArray(userBookings)) ? userBookings.filter((booking: any) => {
     const timeSlot = booking?.time_slots || booking?.timeSlots;
     const startTime = timeSlot?.start_time || timeSlot?.startTime;
     return startTime && new Date(startTime) > new Date() && booking.bookings.status !== 'cancelled';
-  })?.slice(0, 3) || [];
+  }).slice(0, 3) : [];
 
   return (
     <div className="min-h-screen pt-16">
@@ -139,15 +139,19 @@ export default function Home() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : services && Array.isArray(services) && services.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {services?.slice(0, 3).map((service: any) => (
-              <ServiceCard 
-                key={service.id} 
+            {services.slice(0, 3).map((service: any) => (
+              <ServiceCard
+                key={service.id}
                 service={service}
                 showBookButton={true}
               />
             ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground">No services available at this time.</p>
           </div>
         )}
 
@@ -182,14 +186,18 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : instructors && Array.isArray(instructors) && instructors.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {instructors?.slice(0, 3).map((instructor: any) => (
-                <InstructorCard 
-                  key={instructor.instructors.id} 
+              {instructors.slice(0, 3).map((instructor: any) => (
+                <InstructorCard
+                  key={instructor.instructors.id}
                   instructor={instructor}
                 />
               ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No instructors available at this time.</p>
             </div>
           )}
 

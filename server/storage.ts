@@ -44,6 +44,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { logger } from "./utils/logger";
 
 export interface IStorage {
   // User operations
@@ -134,7 +135,7 @@ export interface IStorage {
   getUserRegistrations(userId: string): Promise<(Registration & { class: Class & { template: ClassTemplate } })[]>;
   getClassRegistrations(classId: string): Promise<(Registration & { client: User })[]>;
   getRegistration(id: string): Promise<Registration | undefined>;
-  createRegistration(registration: InsertRegistration): Promise<Registration>;
+  createRegistration(registration: InsertRegistration & { clientId: string }): Promise<Registration>;
   updateRegistration(id: string, registration: Partial<InsertRegistration>): Promise<Registration>;
   getRegistrationWithDetails(id: string): Promise<(Registration & { class: Class & { template: ClassTemplate } }) | undefined>;
   cancelRegistration(id: string): Promise<Registration>;
@@ -142,6 +143,10 @@ export interface IStorage {
 
   // Payment information
   getActivePaymentInfo(): Promise<any[]>;
+
+  // Utility methods
+  fixAllClassCounters(): Promise<{ classId: string; oldCount: number; newCount: number }[]>;
+  deleteRegistration(id: string): Promise<void>;
 
   // Customer invoice operations
   createCustomerInvoice(data: InsertCustomerInvoice): Promise<CustomerInvoice>;
@@ -599,7 +604,7 @@ export class DatabaseStorage implements IStorage {
       return { valid: false, error: "Voucher has expired" };
     }
     
-    if (voucher.usedCount >= voucher.usageLimit) {
+    if ((voucher.usedCount ?? 0) >= (voucher.usageLimit ?? 1)) {
       return { valid: false, error: "Voucher usage limit reached" };
     }
     
@@ -793,6 +798,69 @@ export class DatabaseStorage implements IStorage {
     return actualCount;
   }
 
+  // Optimized method to fix all class counters in one query
+  async fixAllClassCounters(): Promise<{ classId: string; oldCount: number; newCount: number }[]> {
+    // Get all classes with their current counts
+    const allClasses = await db.select().from(classes);
+    
+    // Get all registration counts in one query
+    const registrationCounts = await db
+      .select({
+        classId: registrations.classId,
+        count: sql<number>`COUNT(*)`.as('count')
+      })
+      .from(registrations)
+      .where(eq(registrations.status, 'confirmed'))
+      .groupBy(registrations.classId);
+
+    // Create a map for quick lookup
+    const countMap = new Map(registrationCounts.map(r => [r.classId, r.count]));
+    
+    const fixed = [];
+    
+    // Update classes that have mismatched counts
+    for (const classItem of allClasses) {
+      const actualCount = countMap.get(classItem.id) || 0;
+      
+      if (classItem.currentBookings !== actualCount) {
+        await db
+          .update(classes)
+          .set({ currentBookings: actualCount })
+          .where(eq(classes.id, classItem.id));
+          
+        fixed.push({
+          classId: classItem.id,
+          oldCount: classItem.currentBookings,
+          newCount: actualCount,
+        });
+      }
+    }
+    
+    return fixed;
+  }
+
+  async deleteRegistration(id: string): Promise<void> {
+    // Get registration details first
+    const registration = await this.getRegistration(id);
+    if (!registration) {
+      throw new Error('Registration not found');
+    }
+
+    // Delete the registration
+    await db.delete(registrations).where(eq(registrations.id, id));
+
+    // Decrement class bookings count
+    await db
+      .update(classes)
+      .set({ currentBookings: sql`${classes.currentBookings} - 1` })
+      .where(eq(classes.id, registration.classId));
+
+    logger.info("Registration deleted", { 
+      registrationId: id, 
+      classId: registration.classId 
+    });
+  }
+
   async getRegistration(id: string): Promise<Registration | undefined> {
     const [registration] = await db
       .select()
@@ -802,8 +870,8 @@ export class DatabaseStorage implements IStorage {
     return registration;
   }
 
-  async createRegistration(registration: InsertRegistration): Promise<Registration> {
-    const [newRegistration] = await db.insert(registrations).values(registration).returning();
+  async createRegistration(registration: InsertRegistration & { clientId: string }): Promise<Registration> {
+    const [newRegistration] = await db.insert(registrations).values(registration as any).returning();
 
     // Increment current bookings count
     await db

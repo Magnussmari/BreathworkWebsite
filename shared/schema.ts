@@ -23,7 +23,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: varchar("role", { enum: ["client", "admin"] }).default("client").notNull(),
+  role: varchar("role", { enum: ["client", "staff", "admin"] }).default("client").notNull(),
   isSuperuser: boolean("is_superuser").default(false).notNull(),
   phone: varchar("phone"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -236,6 +236,8 @@ export const companyInvoices = pgTable("company_invoices", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+
 
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({

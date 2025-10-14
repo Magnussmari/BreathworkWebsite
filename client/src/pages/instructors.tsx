@@ -46,8 +46,9 @@ export default function Instructors() {
         </div>
 
         {/* Instructors Grid */}
+        {instructors && Array.isArray(instructors) && instructors.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
-          {instructors?.map((instructor: any) => (
+          {instructors.map((instructor: any) => (
             <div key={instructor.instructors.id} className="relative">
               <InstructorCard instructor={instructor} />
               
@@ -84,6 +85,11 @@ export default function Instructors() {
             </div>
           ))}
         </div>
+        ) : (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground">No instructors available at this time.</p>
+          </div>
+        )}
 
         {/* What Makes Our Instructors Special */}
         <Card className="bg-gradient-to-r from-primary/5 to-accent/5 border-none">

@@ -75,7 +75,7 @@ var init_schema = __esm({
       firstName: varchar("first_name"),
       lastName: varchar("last_name"),
       profileImageUrl: varchar("profile_image_url"),
-      role: varchar("role", { enum: ["client", "admin"] }).default("client").notNull(),
+      role: varchar("role", { enum: ["client", "staff", "admin"] }).default("client").notNull(),
       isSuperuser: boolean("is_superuser").default(false).notNull(),
       phone: varchar("phone"),
       createdAt: timestamp("created_at").defaultNow(),
@@ -431,6 +431,64 @@ var db = drizzle({ client: pool, schema: schema_exports });
 
 // server/storage.ts
 import { eq, and, gte, lte, desc, asc, sql as sql2, count, inArray } from "drizzle-orm";
+
+// server/utils/logger.ts
+var isDevelopment = process.env.NODE_ENV === "development";
+var isProduction = process.env.NODE_ENV === "production";
+var Logger = class {
+  shouldLog(level) {
+    if (isDevelopment) return true;
+    if (isProduction) {
+      return level === "error" /* ERROR */ || level === "warn" /* WARN */;
+    }
+    return false;
+  }
+  formatLog(level, message, data, context) {
+    return {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level,
+      message,
+      data: data ? this.sanitizeData(data) : void 0,
+      userId: context?.userId,
+      requestId: context?.requestId
+    };
+  }
+  sanitizeData(data) {
+    if (typeof data !== "object" || data === null) return data;
+    const sanitized = { ...data };
+    const sensitiveFields = ["password", "passwordHash", "token", "secret", "key", "authorization"];
+    sensitiveFields.forEach((field) => {
+      if (field in sanitized) {
+        sanitized[field] = "[REDACTED]";
+      }
+    });
+    return sanitized;
+  }
+  log(level, message, data, context) {
+    if (!this.shouldLog(level)) return;
+    const logEntry = this.formatLog(level, message, data, context);
+    if (isDevelopment) {
+      console[level](`[${logEntry.timestamp}] ${level.toUpperCase()}: ${message}`, data ? logEntry.data : "");
+    } else {
+      console.log(JSON.stringify(logEntry));
+    }
+  }
+  error(message, data, context) {
+    this.log("error" /* ERROR */, message, data, context);
+  }
+  warn(message, data, context) {
+    this.log("warn" /* WARN */, message, data, context);
+  }
+  info(message, data, context) {
+    this.log("info" /* INFO */, message, data, context);
+  }
+  debug(message, data, context) {
+    this.log("debug" /* DEBUG */, message, data, context);
+  }
+};
+var logger = new Logger();
+
+// server/storage.ts
 var DatabaseStorage = class {
   // User operations
   async getUser(id) {
@@ -675,7 +733,7 @@ var DatabaseStorage = class {
     if (voucher.validUntil && /* @__PURE__ */ new Date() > voucher.validUntil) {
       return { valid: false, error: "Voucher has expired" };
     }
-    if (voucher.usedCount >= voucher.usageLimit) {
+    if ((voucher.usedCount ?? 0) >= (voucher.usageLimit ?? 1)) {
       return { valid: false, error: "Voucher usage limit reached" };
     }
     return { valid: true, voucher };
@@ -792,6 +850,40 @@ var DatabaseStorage = class {
     await db.update(classes).set({ currentBookings: actualCount }).where(eq(classes.id, classId));
     return actualCount;
   }
+  // Optimized method to fix all class counters in one query
+  async fixAllClassCounters() {
+    const allClasses = await db.select().from(classes);
+    const registrationCounts = await db.select({
+      classId: registrations.classId,
+      count: sql2`COUNT(*)`.as("count")
+    }).from(registrations).where(eq(registrations.status, "confirmed")).groupBy(registrations.classId);
+    const countMap = new Map(registrationCounts.map((r) => [r.classId, r.count]));
+    const fixed = [];
+    for (const classItem of allClasses) {
+      const actualCount = countMap.get(classItem.id) || 0;
+      if (classItem.currentBookings !== actualCount) {
+        await db.update(classes).set({ currentBookings: actualCount }).where(eq(classes.id, classItem.id));
+        fixed.push({
+          classId: classItem.id,
+          oldCount: classItem.currentBookings,
+          newCount: actualCount
+        });
+      }
+    }
+    return fixed;
+  }
+  async deleteRegistration(id) {
+    const registration = await this.getRegistration(id);
+    if (!registration) {
+      throw new Error("Registration not found");
+    }
+    await db.delete(registrations).where(eq(registrations.id, id));
+    await db.update(classes).set({ currentBookings: sql2`${classes.currentBookings} - 1` }).where(eq(classes.id, registration.classId));
+    logger.info("Registration deleted", {
+      registrationId: id,
+      classId: registration.classId
+    });
+  }
   async getRegistration(id) {
     const [registration] = await db.select().from(registrations).where(eq(registrations.id, id)).limit(1);
     return registration;
@@ -888,6 +980,207 @@ var DatabaseStorage = class {
   }
 };
 var storage = new DatabaseStorage();
+
+// server/middleware/rateLimiting.ts
+import rateLimit from "express-rate-limit";
+var generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  // 15 minutes
+  max: 100,
+  // limit each IP to 100 requests per windowMs
+  message: {
+    error: "Too many requests from this IP, please try again later.",
+    retryAfter: "15 minutes"
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  // 15 minutes
+  max: 5,
+  // limit each IP to 5 login attempts per windowMs
+  message: {
+    error: "Too many authentication attempts, please try again later.",
+    retryAfter: "15 minutes"
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true
+  // Don't count successful requests
+});
+var registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1e3,
+  // 1 hour
+  max: 3,
+  // limit each IP to 3 registrations per hour
+  message: {
+    error: "Too many registration attempts, please try again later.",
+    retryAfter: "1 hour"
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+var passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1e3,
+  // 1 hour
+  max: 3,
+  // limit each IP to 3 password reset attempts per hour
+  message: {
+    error: "Too many password reset attempts, please try again later.",
+    retryAfter: "1 hour"
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// server/middleware/validation.ts
+import { z as z2 } from "zod";
+
+// server/utils/sanitizer.ts
+function sanitizeHtml(input) {
+  if (typeof input !== "string") return "";
+  return input.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#x2F;/g, "/").replace(/&#x60;/g, "`").replace(/&#x3D;/g, "=").replace(/[<>]/g, "").substring(0, 1e3);
+}
+function sanitizeText(input) {
+  if (typeof input !== "string") return "";
+  return input.replace(/<[^>]*>/g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").substring(0, 500);
+}
+function sanitizeEmail(input) {
+  if (typeof input !== "string") return "";
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const sanitized = input.trim().toLowerCase();
+  if (!emailRegex.test(sanitized)) {
+    throw new Error("Invalid email format");
+  }
+  return sanitized.substring(0, 254);
+}
+function sanitizeNumeric(input) {
+  if (typeof input === "number") return input.toString();
+  if (typeof input !== "string") return "0";
+  const cleaned = input.replace(/[^0-9.]/g, "");
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? "0" : parsed.toString();
+}
+
+// server/middleware/validation.ts
+var commonSchemas = {
+  id: z2.string().uuid("Invalid ID format"),
+  email: z2.string().email("Invalid email format").transform(sanitizeEmail),
+  phone: z2.string().min(8).max(20).optional(),
+  name: z2.string().min(1).max(100).transform(sanitizeText),
+  description: z2.string().max(1e3).transform(sanitizeHtml),
+  price: z2.number().positive().transform(sanitizeNumeric),
+  date: z2.string().datetime().or(z2.date()),
+  boolean: z2.boolean(),
+  positiveInt: z2.number().int().positive(),
+  nonNegativeInt: z2.number().int().min(0)
+};
+function validateBody(schema) {
+  return (req, res, next) => {
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch (error) {
+      if (error instanceof z2.ZodError) {
+        logger.warn("Validation error", {
+          errors: error.errors,
+          body: req.body,
+          path: req.path
+        });
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: error.errors.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+            code: err.code
+          }))
+        });
+      }
+      logger.error("Validation middleware error", { error: error.message });
+      res.status(500).json({ message: "Internal validation error" });
+    }
+  };
+}
+var validationSchemas = {
+  // User registration
+  register: z2.object({
+    email: commonSchemas.email,
+    password: z2.string().min(8).max(128),
+    firstName: commonSchemas.name.optional(),
+    lastName: commonSchemas.name.optional(),
+    phone: commonSchemas.phone
+  }),
+  // User login
+  login: z2.object({
+    email: commonSchemas.email,
+    password: z2.string().min(1)
+  }),
+  // Class creation
+  createClass: z2.object({
+    templateId: commonSchemas.id,
+    scheduledDate: commonSchemas.date,
+    location: commonSchemas.name,
+    maxCapacity: commonSchemas.positiveInt,
+    customPrice: commonSchemas.price.optional(),
+    instructorNotes: commonSchemas.description.optional()
+  }),
+  // Registration
+  createRegistration: z2.object({
+    classId: commonSchemas.id,
+    paymentAmount: commonSchemas.price,
+    paymentMethod: z2.enum(["bank_transfer", "pay_on_arrival"]).default("bank_transfer"),
+    notes: commonSchemas.description.optional()
+  }),
+  // Time slot creation
+  createTimeSlot: z2.object({
+    instructorId: commonSchemas.id,
+    serviceId: commonSchemas.id,
+    startTime: commonSchemas.date,
+    endTime: commonSchemas.date
+  }),
+  // Pagination
+  pagination: z2.object({
+    page: commonSchemas.nonNegativeInt.default(1),
+    limit: z2.number().int().min(1).max(100).default(20),
+    sortBy: z2.string().optional(),
+    sortOrder: z2.enum(["asc", "desc"]).default("desc")
+  }),
+  // Date range
+  dateRange: z2.object({
+    startDate: commonSchemas.date.optional(),
+    endDate: commonSchemas.date.optional()
+  })
+};
+function sanitizeInputs(req, res, next) {
+  const sanitizeObject = (obj) => {
+    if (typeof obj === "string") {
+      return sanitizeText(obj);
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(sanitizeObject);
+    }
+    if (obj && typeof obj === "object") {
+      const sanitized = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (["password", "passwordHash", "token", "secret"].includes(key)) {
+          sanitized[key] = value;
+        } else {
+          sanitized[key] = sanitizeObject(value);
+        }
+      }
+      return sanitized;
+    }
+    return obj;
+  };
+  if (req.body) {
+    req.body = sanitizeObject(req.body);
+  }
+  if (req.query) {
+    req.query = sanitizeObject(req.query);
+  }
+  next();
+}
 
 // server/supabaseAuth.ts
 import bcrypt from "bcrypt";
@@ -991,17 +1284,17 @@ async function sendRegistrationConfirmation(data) {
 
     <h2 style="color: #667eea; margin-top: 0;">B\xF3kun \xFE\xEDn hefur veri\xF0 sta\xF0fest! \u2713</h2>
 
-    <p>G\xF3\xF0an daginn ${user.firstName || ""},</p>
+    <p>G\xF3\xF0an daginn ${sanitizeText(user.firstName || "")},</p>
 
     <p>\xDE\xFA hefur skr\xE1\xF0 \xFEig \xED \xF6ndunar\xE6fingu. H\xE9r a\xF0 ne\xF0an eru allar uppl\xFDsingar um t\xEDmann \xFEinn:</p>
 
     <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 25px 0;">
-      <h3 style="margin-top: 0; color: #667eea; font-size: 20px;">${classItem.template.name}</h3>
+      <h3 style="margin-top: 0; color: #667eea; font-size: 20px;">${sanitizeHtml(classItem.template.name)}</h3>
 
       <table style="width: 100%; border-collapse: collapse;">
         <tr>
           <td style="padding: 8px 0; color: #666;"><strong>B\xF3kunarn\xFAmer:</strong></td>
-          <td style="padding: 8px 0; text-align: right;">${registration.paymentReference || registration.id.substring(0, 10).toUpperCase()}</td>
+          <td style="padding: 8px 0; text-align: right;">${sanitizeText(registration.paymentReference || registration.id.substring(0, 10).toUpperCase())}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #666;"><strong>Dagsetning:</strong></td>
@@ -1013,7 +1306,7 @@ async function sendRegistrationConfirmation(data) {
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #666;"><strong>Sta\xF0setning:</strong></td>
-          <td style="padding: 8px 0; text-align: right;">${classItem.location}</td>
+          <td style="padding: 8px 0; text-align: right;">${sanitizeText(classItem.location)}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #666; border-top: 2px solid #e0e0e0; padding-top: 15px;"><strong>Upph\xE6\xF0:</strong></td>
@@ -1029,19 +1322,19 @@ async function sendRegistrationConfirmation(data) {
       <table style="width: 100%; margin-top: 15px;">
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Banki:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404;">${paymentInfo.bankName}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404;">${sanitizeText(paymentInfo.bankName)}</td>
         </tr>
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Reikningsn\xFAmer:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${paymentInfo.accountNumber}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${sanitizeText(paymentInfo.accountNumber)}</td>
         </tr>
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Kennitala:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404;">${paymentInfo.companyName}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404;">${sanitizeText(paymentInfo.companyName)}</td>
         </tr>
         <tr>
           <td style="padding: 5px 0; color: #856404;"><strong>Tilvitnun:</strong></td>
-          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${registration.paymentReference || registration.id.substring(0, 10).toUpperCase()}</td>
+          <td style="padding: 5px 0; text-align: right; color: #856404; font-family: 'Courier New', monospace; font-weight: bold;">${sanitizeText(registration.paymentReference || registration.id.substring(0, 10).toUpperCase())}</td>
         </tr>
       </table>
 
@@ -1060,7 +1353,7 @@ async function sendRegistrationConfirmation(data) {
 
     <div style="margin: 30px 0; padding-top: 20px; border-top: 2px solid #e0e0e0;">
       <h3 style="color: #333;">Um \xF6ndunar\xE6finguna</h3>
-      <p style="color: #666; line-height: 1.8;">${classItem.template.description}</p>
+      <p style="color: #666; line-height: 1.8;">${sanitizeHtml(classItem.template.description)}</p>
     </div>
 
     <p style="margin-top: 30px; color: #666;">
@@ -1080,29 +1373,38 @@ async function sendRegistrationConfirmation(data) {
     `;
     await resend.emails.send({
       from: `Breathwork <${FROM_EMAIL}>`,
-      to: [user.email],
-      subject: `B\xF3kun sta\xF0fest - ${classItem.template.name} - ${formattedDate}`,
+      to: [sanitizeEmail(user.email)],
+      subject: `B\xF3kun sta\xF0fest - ${sanitizeText(classItem.template.name)} - ${formattedDate}`,
       html: emailHtml
     });
-    console.log(`\u2713 Confirmation email sent to ${user.email}`);
+    logger.info("Confirmation email sent", { email: user.email });
     return true;
   } catch (error) {
-    console.error("Failed to send confirmation email:", error);
+    logger.error("Failed to send confirmation email", { error: error.message });
     return false;
   }
 }
 
 // server/routes.ts
 init_schema();
-import { z as z2 } from "zod";
+import { z as z3 } from "zod";
 function isAdminOrSuperuser(user) {
   return user?.role === "admin" || user?.isSuperuser === true;
 }
 async function registerRoutes(app2) {
   app2.use(cookieParser());
-  app2.post("/api/auth/register", async (req, res) => {
+  app2.use("/api", generalLimiter);
+  app2.use("/api", sanitizeInputs);
+  app2.get("/api/health", (req, res) => {
+    res.json({
+      status: "ok",
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      environment: process.env.NODE_ENV || "development"
+    });
+  });
+  app2.post("/api/auth/register", registrationLimiter, validateBody(validationSchemas.register), async (req, res) => {
     try {
-      const { email, password, firstName, lastName, phone } = registerSchema.parse(req.body);
+      const { email, password, firstName, lastName, phone } = req.body;
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
         return res.status(400).json({ message: "User already exists" });
@@ -1127,16 +1429,16 @@ async function registerRoutes(app2) {
       });
       res.json({ user: { id: user.id, email: user.email, role: user.role } });
     } catch (error) {
-      console.error("Registration error:", error);
-      if (error instanceof z2.ZodError) {
+      logger.error("Registration failed", { error: error.message }, { requestId: req.headers["x-request-id"] });
+      if (error instanceof z3.ZodError) {
         return res.status(400).json({ message: "Invalid input", errors: error.errors });
       }
       res.status(500).json({ message: "Registration failed" });
     }
   });
-  app2.post("/api/auth/login", async (req, res) => {
+  app2.post("/api/auth/login", authLimiter, validateBody(validationSchemas.login), async (req, res) => {
     try {
-      const { email, password } = loginSchema.parse(req.body);
+      const { email, password } = req.body;
       const user = await storage.getUserByEmail(email);
       if (!user) {
         return res.status(401).json({ message: "Invalid credentials" });
@@ -1155,8 +1457,8 @@ async function registerRoutes(app2) {
       });
       res.json({ user: { id: user.id, email: user.email, role: user.role } });
     } catch (error) {
-      console.error("Login error:", error);
-      if (error instanceof z2.ZodError) {
+      logger.error("Login failed", { error: error.message }, { requestId: req.headers["x-request-id"] });
+      if (error instanceof z3.ZodError) {
         return res.status(400).json({ message: "Invalid input", errors: error.errors });
       }
       res.status(500).json({ message: "Login failed" });
@@ -1171,7 +1473,7 @@ async function registerRoutes(app2) {
       res.clearCookie("session_token");
       res.json({ message: "Logged out successfully" });
     } catch (error) {
-      console.error("Logout error:", error);
+      logger.error("Logout error:", { error: error.message });
       res.status(500).json({ message: "Logout failed" });
     }
   });
@@ -1184,7 +1486,7 @@ async function registerRoutes(app2) {
       const { passwordHash, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
-      console.error("Error fetching user:", error);
+      logger.error("Error fetching user:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
@@ -1201,7 +1503,7 @@ async function registerRoutes(app2) {
       });
       res.json(usersWithoutPasswords);
     } catch (error) {
-      console.error("Error fetching users:", error);
+      logger.error("Error fetching users:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch users" });
     }
   });
@@ -1210,7 +1512,7 @@ async function registerRoutes(app2) {
       const services2 = await storage.getActiveServices();
       res.json(services2);
     } catch (error) {
-      console.error("Error fetching services:", error);
+      logger.error("Error fetching services:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch services" });
     }
   });
@@ -1222,7 +1524,7 @@ async function registerRoutes(app2) {
       }
       res.json(service);
     } catch (error) {
-      console.error("Error fetching service:", error);
+      logger.error("Error fetching service:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch service" });
     }
   });
@@ -1236,8 +1538,8 @@ async function registerRoutes(app2) {
       const service = await storage.createService(serviceData);
       res.json(service);
     } catch (error) {
-      console.error("Error creating service:", error);
-      if (error instanceof z2.ZodError) {
+      logger.error("Error creating service:", { error: error.message });
+      if (error instanceof z3.ZodError) {
         return res.status(400).json({ message: "Invalid service data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create service" });
@@ -1253,7 +1555,7 @@ async function registerRoutes(app2) {
       const service = await storage.updateService(req.params.id, serviceData);
       res.json(service);
     } catch (error) {
-      console.error("Error updating service:", error);
+      logger.error("Error updating service:", { error: error.message });
       res.status(500).json({ message: "Failed to update service" });
     }
   });
@@ -1266,7 +1568,7 @@ async function registerRoutes(app2) {
       await storage.deleteService(req.params.id);
       res.json({ message: "Service deleted successfully" });
     } catch (error) {
-      console.error("Error deleting service:", error);
+      logger.error("Error deleting service:", { error: error.message });
       res.status(500).json({ message: "Failed to delete service" });
     }
   });
@@ -1275,7 +1577,7 @@ async function registerRoutes(app2) {
       const instructors2 = await storage.getActiveInstructors();
       res.json(instructors2);
     } catch (error) {
-      console.error("Error fetching instructors:", error);
+      logger.error("Error fetching instructors:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch instructors" });
     }
   });
@@ -1287,7 +1589,7 @@ async function registerRoutes(app2) {
       }
       res.json(instructor);
     } catch (error) {
-      console.error("Error fetching instructor:", error);
+      logger.error("Error fetching instructor:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch instructor" });
     }
   });
@@ -1303,7 +1605,7 @@ async function registerRoutes(app2) {
       const allTimeSlots = await storage.getUpcomingTimeSlots(start, end);
       res.json(allTimeSlots);
     } catch (error) {
-      console.error("Error fetching admin time slots:", error);
+      logger.error("Error fetching admin time slots:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch time slots" });
     }
   });
@@ -1329,7 +1631,7 @@ async function registerRoutes(app2) {
         res.json(timeSlots2);
       }
     } catch (error) {
-      console.error("Error fetching time slots:", error);
+      logger.error("Error fetching time slots:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch time slots" });
     }
   });
@@ -1343,7 +1645,7 @@ async function registerRoutes(app2) {
       const timeSlot = await storage.createTimeSlot(timeSlotData);
       res.json(timeSlot);
     } catch (error) {
-      console.error("Error creating time slot:", error);
+      logger.error("Error creating time slot:", { error: error.message });
       res.status(500).json({ message: "Failed to create time slot" });
     }
   });
@@ -1356,7 +1658,7 @@ async function registerRoutes(app2) {
       await storage.deleteTimeSlot(req.params.id);
       res.json({ message: "Time slot deleted successfully" });
     } catch (error) {
-      console.error("Error deleting time slot:", error);
+      logger.error("Error deleting time slot:", { error: error.message });
       res.status(500).json({ message: "Failed to delete time slot" });
     }
   });
@@ -1373,7 +1675,7 @@ async function registerRoutes(app2) {
         return res.status(403).json({ message: "Access denied" });
       }
     } catch (error) {
-      console.error("Error fetching bookings:", error);
+      logger.error("Error fetching bookings:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch bookings" });
     }
   });
@@ -1392,7 +1694,7 @@ async function registerRoutes(app2) {
       }
       res.json(booking);
     } catch (error) {
-      console.error("Error fetching booking:", error);
+      logger.error("Error fetching booking:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch booking" });
     }
   });
@@ -1406,8 +1708,8 @@ async function registerRoutes(app2) {
       const booking = await storage.createBooking(bookingData);
       res.json(booking);
     } catch (error) {
-      console.error("Error creating booking:", error);
-      if (error instanceof z2.ZodError) {
+      logger.error("Error creating booking:", { error: error.message });
+      if (error instanceof z3.ZodError) {
         return res.status(400).json({ message: "Invalid booking data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create booking" });
@@ -1427,7 +1729,7 @@ async function registerRoutes(app2) {
       const updatedBooking = await storage.updateBooking(req.params.id, updateData);
       res.json(updatedBooking);
     } catch (error) {
-      console.error("Error updating booking:", error);
+      logger.error("Error updating booking:", { error: error.message });
       res.status(500).json({ message: "Failed to update booking" });
     }
   });
@@ -1452,7 +1754,7 @@ async function registerRoutes(app2) {
         } : null
       });
     } catch (error) {
-      console.error("Error cancelling booking:", error);
+      logger.error("Error cancelling booking:", { error: error.message });
       res.status(500).json({ message: "Failed to cancel booking" });
     }
   });
@@ -1489,7 +1791,7 @@ async function registerRoutes(app2) {
       });
       res.json(updatedBooking);
     } catch (error) {
-      console.error("Error rescheduling booking:", error);
+      logger.error("Error rescheduling booking:", { error: error.message });
       res.status(500).json({ message: "Failed to reschedule booking" });
     }
   });
@@ -1503,7 +1805,7 @@ async function registerRoutes(app2) {
       const waitlistEntry = await storage.addToWaitlist(waitlistData);
       res.json(waitlistEntry);
     } catch (error) {
-      console.error("Error adding to waitlist:", error);
+      logger.error("Error adding to waitlist:", { error: error.message });
       res.status(500).json({ message: "Failed to add to waitlist" });
     }
   });
@@ -1512,7 +1814,7 @@ async function registerRoutes(app2) {
       const waitlist2 = await storage.getWaitlist(req.params.timeSlotId);
       res.json(waitlist2);
     } catch (error) {
-      console.error("Error fetching waitlist:", error);
+      logger.error("Error fetching waitlist:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch waitlist" });
     }
   });
@@ -1521,7 +1823,7 @@ async function registerRoutes(app2) {
       const availability2 = await storage.getInstructorAvailability(req.params.instructorId);
       res.json(availability2);
     } catch (error) {
-      console.error("Error fetching availability:", error);
+      logger.error("Error fetching availability:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch availability" });
     }
   });
@@ -1535,7 +1837,7 @@ async function registerRoutes(app2) {
       const availability2 = await storage.createAvailability(availabilityData);
       res.json(availability2);
     } catch (error) {
-      console.error("Error creating availability:", error);
+      logger.error("Error creating availability:", { error: error.message });
       res.status(500).json({ message: "Failed to create availability" });
     }
   });
@@ -1552,7 +1854,7 @@ async function registerRoutes(app2) {
       );
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching booking stats:", error);
+      logger.error("Error fetching booking stats:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch booking stats" });
     }
   });
@@ -1561,7 +1863,7 @@ async function registerRoutes(app2) {
       const templates = await storage.getClassTemplates();
       res.json(templates);
     } catch (error) {
-      console.error("Error fetching class templates:", error);
+      logger.error("Error fetching class templates:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch class templates" });
     }
   });
@@ -1578,21 +1880,30 @@ async function registerRoutes(app2) {
       });
       res.json(template);
     } catch (error) {
-      console.error("Error creating class template:", error);
+      logger.error("Error creating class template:", { error: error.message });
       res.status(500).json({ message: "Failed to create class template" });
     }
   });
-  app2.get("/api/classes/all", isAuthenticated, async (req, res) => {
+  app2.get("/api/classes", async (req, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!isAdminOrSuperuser(user)) {
-        return res.status(403).json({ message: "Admin access required" });
+      const { type } = req.query;
+      if (type === "upcoming") {
+        const classes3 = await storage.getUpcomingClasses();
+        return res.json(classes3);
       }
-      const classes2 = await storage.getAllClasses();
-      res.json(classes2);
+      if (type === "all") {
+        const user = await storage.getUser(req.user?.id);
+        if (!user || !isAdminOrSuperuser(user)) {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        const classes3 = await storage.getAllClasses();
+        return res.json(classes3);
+      }
+      const classes2 = await storage.getUpcomingClasses();
+      return res.json(classes2);
     } catch (error) {
-      console.error("Error fetching all classes:", error);
-      res.status(500).json({ message: "Failed to fetch all classes" });
+      logger.error("Error fetching classes:", { error: error.message });
+      res.status(500).json({ message: "Failed to fetch classes" });
     }
   });
   app2.post("/api/classes/fix-counters", isAuthenticated, async (req, res) => {
@@ -1601,38 +1912,13 @@ async function registerRoutes(app2) {
       if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      const allClasses = await storage.getAllClasses();
-      console.log("[fix-counters] Found classes:", allClasses.length);
-      const fixed = [];
-      for (const classItem of allClasses) {
-        const registrationsList = await storage.getClassRegistrations(classItem.id);
-        const actualCount = registrationsList.length;
-        console.log(`[fix-counters] Class ${classItem.id}: currentBookings=${classItem.currentBookings}, actualCount=${actualCount}`);
-        if (classItem.currentBookings !== actualCount) {
-          console.log(`[fix-counters] MISMATCH FOUND - Fixing class ${classItem.id} from ${classItem.currentBookings} to ${actualCount}`);
-          await storage.fixClassBookingsCounter(classItem.id);
-          fixed.push({
-            classId: classItem.id,
-            name: classItem.template?.name,
-            oldCount: classItem.currentBookings,
-            newCount: actualCount
-          });
-        }
-      }
-      console.log("[fix-counters] Fixed classes:", fixed);
+      logger.info("Starting optimized class counter fix");
+      const fixed = await storage.fixAllClassCounters();
+      logger.info("Class counter fix completed", { fixedCount: fixed.length });
       res.json({ message: `Fixed ${fixed.length} classes`, fixed });
     } catch (error) {
-      console.error("Error fixing counters:", error);
+      logger.error("Error fixing counters", { error: error.message });
       res.status(500).json({ message: "Failed to fix counters" });
-    }
-  });
-  app2.get("/api/classes/upcoming", async (req, res) => {
-    try {
-      const classes2 = await storage.getUpcomingClasses();
-      res.json(classes2);
-    } catch (error) {
-      console.error("Error fetching upcoming classes:", error);
-      res.status(500).json({ message: "Failed to fetch upcoming classes" });
     }
   });
   app2.get("/api/classes/:id", async (req, res) => {
@@ -1643,7 +1929,7 @@ async function registerRoutes(app2) {
       }
       res.json(classItem);
     } catch (error) {
-      console.error("Error fetching class:", error);
+      logger.error("Error fetching class:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch class" });
     }
   });
@@ -1654,11 +1940,13 @@ async function registerRoutes(app2) {
         return res.status(403).json({ message: "Admin access required" });
       }
       const registrationsList = await storage.getClassRegistrations(req.params.id);
-      console.log(`[registrations] Class ${req.params.id}: Found ${registrationsList.length} registrations`);
-      console.log("[registrations] Data:", JSON.stringify(registrationsList, null, 2));
+      logger.debug("Fetched class registrations", {
+        classId: req.params.id,
+        registrationCount: registrationsList.length
+      });
       res.json(registrationsList);
     } catch (error) {
-      console.error("Error fetching class registrations:", error);
+      logger.error("Error fetching class registrations:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch registrations" });
     }
   });
@@ -1672,7 +1960,7 @@ async function registerRoutes(app2) {
       const newClass = await storage.createClass(validated);
       res.json(newClass);
     } catch (error) {
-      console.error("Error creating class:", error);
+      logger.error("Error creating class:", { error: error.message });
       res.status(500).json({ message: "Failed to create class" });
     }
   });
@@ -1682,12 +1970,12 @@ async function registerRoutes(app2) {
       if (!isAdminOrSuperuser(user)) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      console.log(`[delete-class] Deleting class ${req.params.id}`);
+      logger.info("Deleting class", { classId: req.params.id });
       await storage.deleteClass(req.params.id);
-      console.log(`[delete-class] Successfully deleted class ${req.params.id}`);
+      logger.info("Class deleted successfully", { classId: req.params.id });
       res.json({ message: "Class deleted successfully" });
     } catch (error) {
-      console.error("Error deleting class:", error);
+      logger.error("Error deleting class:", { error: error.message });
       res.status(500).json({ message: "Failed to delete class" });
     }
   });
@@ -1696,7 +1984,7 @@ async function registerRoutes(app2) {
       const registrations2 = await storage.getUserRegistrations(req.user.id);
       res.json(registrations2);
     } catch (error) {
-      console.error("Error fetching user registrations:", error);
+      logger.error("Error fetching user registrations:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch registrations" });
     }
   });
@@ -1709,13 +1997,13 @@ async function registerRoutes(app2) {
       const registrations2 = await storage.getClassRegistrations(req.params.classId);
       res.json(registrations2);
     } catch (error) {
-      console.error("Error fetching class registrations:", error);
+      logger.error("Error fetching class registrations:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch registrations" });
     }
   });
   app2.post("/api/registrations/reserve", isAuthenticated, async (req, res) => {
     try {
-      console.log("Reserve request body:", req.body);
+      logger.debug("Reserve request received", { classId: req.body.classId });
       const { classId, paymentAmount } = req.body;
       if (!classId || !paymentAmount) {
         return res.status(400).json({ message: "Missing classId or paymentAmount" });
@@ -1744,12 +2032,12 @@ async function registerRoutes(app2) {
         status: "reserved"
         // Temporary reservation
       };
-      console.log("Creating reservation with data:", registrationData);
+      logger.debug("Creating reservation", { classId, paymentAmount });
       const registration = await storage.createRegistration(registrationData);
-      console.log("Created registration:", registration);
+      logger.info("Reservation created", { registrationId: registration.id });
       res.json(registration);
     } catch (error) {
-      console.error("Error creating reservation:", error);
+      logger.error("Error creating reservation:", { error: error.message });
       res.status(500).json({ message: "Failed to create reservation", error: String(error) });
     }
   });
@@ -1788,20 +2076,18 @@ async function registerRoutes(app2) {
           });
         }
       } catch (emailError) {
-        console.error("Failed to send confirmation email:", emailError);
+        logger.error("Failed to send confirmation email:", { error: emailError.message });
       }
       res.json(updated);
     } catch (error) {
-      console.error("Error confirming registration:", error);
+      logger.error("Error confirming registration:", { error: error.message });
       res.status(500).json({ message: "Failed to confirm registration" });
     }
   });
   app2.post("/api/registrations", isAuthenticated, async (req, res) => {
     try {
-      console.log("Registration request body:", req.body);
-      console.log("User from session:", req.user);
+      logger.debug("Registration request received", { userId: req.user?.id });
       const validated = insertRegistrationSchema.parse(req.body);
-      console.log("Validated data:", validated);
       const classItem = await storage.getClass(validated.classId);
       if (!classItem) {
         return res.status(404).json({ message: "Class not found" });
@@ -1820,7 +2106,7 @@ async function registerRoutes(app2) {
         status: "confirmed"
         // Spot is reserved immediately
       };
-      console.log("Creating registration with data:", registrationData);
+      logger.debug("Creating registration", { classId: validated.classId });
       const registration = await storage.createRegistration(registrationData);
       try {
         const user = await storage.getUser(req.user.id);
@@ -1840,12 +2126,12 @@ async function registerRoutes(app2) {
           });
         }
       } catch (emailError) {
-        console.error("Failed to send confirmation email:", emailError);
+        logger.error("Failed to send confirmation email:", { error: emailError.message });
       }
       res.json(registration);
     } catch (error) {
-      console.error("Error creating registration:", error);
-      if (error instanceof z2.ZodError) {
+      logger.error("Error creating registration:", { error: error.message });
+      if (error instanceof z3.ZodError) {
         return res.status(400).json({ message: "Invalid registration data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create registration" });
@@ -1856,7 +2142,7 @@ async function registerRoutes(app2) {
       const registration = await storage.cancelRegistration(req.params.id);
       res.json(registration);
     } catch (error) {
-      console.error("Error cancelling registration:", error);
+      logger.error("Error cancelling registration:", { error: error.message });
       res.status(500).json({ message: "Failed to cancel registration" });
     }
   });
@@ -1872,7 +2158,7 @@ async function registerRoutes(app2) {
       }
       res.json(registration);
     } catch (error) {
-      console.error("Error fetching registration:", error);
+      logger.error("Error fetching registration:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch registration" });
     }
   });
@@ -1890,7 +2176,7 @@ async function registerRoutes(app2) {
       });
       res.json(updated);
     } catch (error) {
-      console.error("Error confirming transfer:", error);
+      logger.error("Error confirming transfer:", { error: error.message });
       res.status(500).json({ message: "Failed to confirm transfer" });
     }
   });
@@ -1903,8 +2189,30 @@ async function registerRoutes(app2) {
       const updated = await storage.updateRegistration(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
-      console.error("Error updating registration:", error);
+      logger.error("Error updating registration:", { error: error.message });
       res.status(500).json({ message: "Failed to update registration" });
+    }
+  });
+  app2.delete("/api/registrations/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!isAdminOrSuperuser(user)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const registration = await storage.getRegistration(req.params.id);
+      if (!registration) {
+        return res.status(404).json({ message: "Registration not found" });
+      }
+      await storage.deleteRegistration(req.params.id);
+      logger.info("Registration deleted by admin", {
+        registrationId: req.params.id,
+        classId: registration.classId,
+        adminId: user.id
+      });
+      res.json({ message: "Registration deleted successfully" });
+    } catch (error) {
+      logger.error("Error deleting registration:", { error: error.message });
+      res.status(500).json({ message: "Failed to delete registration" });
     }
   });
   app2.post("/api/invoices/customer", isAuthenticated, async (req, res) => {
@@ -1919,7 +2227,7 @@ async function registerRoutes(app2) {
       });
       res.json(invoice);
     } catch (error) {
-      console.error("Error creating customer invoice:", error);
+      logger.error("Error creating customer invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to create invoice" });
     }
   });
@@ -1932,7 +2240,7 @@ async function registerRoutes(app2) {
       const invoices = await storage.getCustomerInvoices();
       res.json(invoices);
     } catch (error) {
-      console.error("Error fetching customer invoices:", error);
+      logger.error("Error fetching customer invoices:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch invoices" });
     }
   });
@@ -1941,7 +2249,7 @@ async function registerRoutes(app2) {
       const invoices = await storage.getCustomerInvoicesByClient(req.user.id);
       res.json(invoices);
     } catch (error) {
-      console.error("Error fetching customer invoices:", error);
+      logger.error("Error fetching customer invoices:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch invoices" });
     }
   });
@@ -1957,7 +2265,7 @@ async function registerRoutes(app2) {
       }
       res.json(invoice);
     } catch (error) {
-      console.error("Error fetching customer invoice:", error);
+      logger.error("Error fetching customer invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch invoice" });
     }
   });
@@ -1970,7 +2278,7 @@ async function registerRoutes(app2) {
       const updated = await storage.updateCustomerInvoice(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
-      console.error("Error updating customer invoice:", error);
+      logger.error("Error updating customer invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to update invoice" });
     }
   });
@@ -1986,7 +2294,7 @@ async function registerRoutes(app2) {
       });
       res.json(invoice);
     } catch (error) {
-      console.error("Error creating company invoice:", error);
+      logger.error("Error creating company invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to create invoice" });
     }
   });
@@ -1999,7 +2307,7 @@ async function registerRoutes(app2) {
       const invoices = await storage.getCompanyInvoices();
       res.json(invoices);
     } catch (error) {
-      console.error("Error fetching company invoices:", error);
+      logger.error("Error fetching company invoices:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch invoices" });
     }
   });
@@ -2015,7 +2323,7 @@ async function registerRoutes(app2) {
       }
       res.json(invoice);
     } catch (error) {
-      console.error("Error fetching company invoice:", error);
+      logger.error("Error fetching company invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch invoice" });
     }
   });
@@ -2028,7 +2336,7 @@ async function registerRoutes(app2) {
       const updated = await storage.updateCompanyInvoice(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
-      console.error("Error updating company invoice:", error);
+      logger.error("Error updating company invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to update invoice" });
     }
   });
@@ -2041,7 +2349,7 @@ async function registerRoutes(app2) {
       await storage.deleteCompanyInvoice(req.params.id);
       res.json({ message: "Invoice deleted successfully" });
     } catch (error) {
-      console.error("Error deleting company invoice:", error);
+      logger.error("Error deleting company invoice:", { error: error.message });
       res.status(500).json({ message: "Failed to delete invoice" });
     }
   });
@@ -2050,7 +2358,7 @@ async function registerRoutes(app2) {
       const paymentInfo = await storage.getActivePaymentInfo();
       res.json(paymentInfo || []);
     } catch (error) {
-      console.error("Error fetching payment info:", error);
+      logger.error("Error fetching payment info:", { error: error.message });
       res.status(500).json({ message: "Failed to fetch payment information" });
     }
   });
@@ -2063,7 +2371,7 @@ async function registerRoutes(app2) {
       const result = await storage.validateVoucher(code);
       res.json(result);
     } catch (error) {
-      console.error("Error validating voucher:", error);
+      logger.error("Error validating voucher:", { error: error.message });
       res.status(500).json({ message: "Failed to validate voucher" });
     }
   });
@@ -2087,14 +2395,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets")
+      "@": path.resolve(process.cwd(), "client", "src"),
+      "@shared": path.resolve(process.cwd(), "shared"),
+      "@assets": path.resolve(process.cwd(), "attached_assets")
     }
   },
-  root: path.resolve(import.meta.dirname, "client"),
+  root: path.resolve(process.cwd(), "client"),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(process.cwd(), "dist/public"),
     emptyOutDir: true
   },
   server: {
@@ -2109,7 +2417,7 @@ var vite_config_default = defineConfig({
 import { nanoid } from "nanoid";
 var viteLogger = createLogger();
 function serveStatic(app2) {
-  const distPath = path2.resolve(import.meta.dirname, "public");
+  const distPath = path2.resolve(process.cwd(), "dist", "public");
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`

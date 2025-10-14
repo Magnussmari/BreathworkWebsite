@@ -75,7 +75,7 @@ var init_schema = __esm({
       firstName: varchar("first_name"),
       lastName: varchar("last_name"),
       profileImageUrl: varchar("profile_image_url"),
-      role: varchar("role", { enum: ["client", "admin"] }).default("client").notNull(),
+      role: varchar("role", { enum: ["client", "staff", "admin"] }).default("client").notNull(),
       isSuperuser: boolean("is_superuser").default(false).notNull(),
       phone: varchar("phone"),
       createdAt: timestamp("created_at").defaultNow(),
@@ -427,6 +427,64 @@ var db = drizzle({ client: pool, schema: schema_exports });
 
 // server/storage.ts
 import { eq, and, gte, lte, desc, asc, sql as sql2, count, inArray } from "drizzle-orm";
+
+// server/utils/logger.ts
+var isDevelopment = process.env.NODE_ENV === "development";
+var isProduction = process.env.NODE_ENV === "production";
+var Logger = class {
+  shouldLog(level) {
+    if (isDevelopment) return true;
+    if (isProduction) {
+      return level === "error" /* ERROR */ || level === "warn" /* WARN */;
+    }
+    return false;
+  }
+  formatLog(level, message, data, context) {
+    return {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level,
+      message,
+      data: data ? this.sanitizeData(data) : void 0,
+      userId: context?.userId,
+      requestId: context?.requestId
+    };
+  }
+  sanitizeData(data) {
+    if (typeof data !== "object" || data === null) return data;
+    const sanitized = { ...data };
+    const sensitiveFields = ["password", "passwordHash", "token", "secret", "key", "authorization"];
+    sensitiveFields.forEach((field) => {
+      if (field in sanitized) {
+        sanitized[field] = "[REDACTED]";
+      }
+    });
+    return sanitized;
+  }
+  log(level, message, data, context) {
+    if (!this.shouldLog(level)) return;
+    const logEntry = this.formatLog(level, message, data, context);
+    if (isDevelopment) {
+      console[level](`[${logEntry.timestamp}] ${level.toUpperCase()}: ${message}`, data ? logEntry.data : "");
+    } else {
+      console.log(JSON.stringify(logEntry));
+    }
+  }
+  error(message, data, context) {
+    this.log("error" /* ERROR */, message, data, context);
+  }
+  warn(message, data, context) {
+    this.log("warn" /* WARN */, message, data, context);
+  }
+  info(message, data, context) {
+    this.log("info" /* INFO */, message, data, context);
+  }
+  debug(message, data, context) {
+    this.log("debug" /* DEBUG */, message, data, context);
+  }
+};
+var logger = new Logger();
+
+// server/storage.ts
 var DatabaseStorage = class {
   // User operations
   async getUser(id) {
@@ -671,7 +729,7 @@ var DatabaseStorage = class {
     if (voucher.validUntil && /* @__PURE__ */ new Date() > voucher.validUntil) {
       return { valid: false, error: "Voucher has expired" };
     }
-    if (voucher.usedCount >= voucher.usageLimit) {
+    if ((voucher.usedCount ?? 0) >= (voucher.usageLimit ?? 1)) {
       return { valid: false, error: "Voucher usage limit reached" };
     }
     return { valid: true, voucher };
@@ -787,6 +845,40 @@ var DatabaseStorage = class {
     const actualCount = registrationsList.length;
     await db.update(classes).set({ currentBookings: actualCount }).where(eq(classes.id, classId));
     return actualCount;
+  }
+  // Optimized method to fix all class counters in one query
+  async fixAllClassCounters() {
+    const allClasses = await db.select().from(classes);
+    const registrationCounts = await db.select({
+      classId: registrations.classId,
+      count: sql2`COUNT(*)`.as("count")
+    }).from(registrations).where(eq(registrations.status, "confirmed")).groupBy(registrations.classId);
+    const countMap = new Map(registrationCounts.map((r) => [r.classId, r.count]));
+    const fixed = [];
+    for (const classItem of allClasses) {
+      const actualCount = countMap.get(classItem.id) || 0;
+      if (classItem.currentBookings !== actualCount) {
+        await db.update(classes).set({ currentBookings: actualCount }).where(eq(classes.id, classItem.id));
+        fixed.push({
+          classId: classItem.id,
+          oldCount: classItem.currentBookings,
+          newCount: actualCount
+        });
+      }
+    }
+    return fixed;
+  }
+  async deleteRegistration(id) {
+    const registration = await this.getRegistration(id);
+    if (!registration) {
+      throw new Error("Registration not found");
+    }
+    await db.delete(registrations).where(eq(registrations.id, id));
+    await db.update(classes).set({ currentBookings: sql2`${classes.currentBookings} - 1` }).where(eq(classes.id, registration.classId));
+    logger.info("Registration deleted", {
+      registrationId: id,
+      classId: registration.classId
+    });
   }
   async getRegistration(id) {
     const [registration] = await db.select().from(registrations).where(eq(registrations.id, id)).limit(1);

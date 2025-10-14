@@ -26,14 +26,14 @@ export default function Services() {
     );
   }
 
-  const groupedServices = services?.reduce((acc: any, service: any) => {
+  const groupedServices = (services && Array.isArray(services)) ? services.reduce((acc: any, service: any) => {
     const category = service.category || 'Other';
     if (!acc[category]) {
       acc[category] = [];
     }
     acc[category].push(service);
     return acc;
-  }, {}) || {};
+  }, {} as Record<string, any[]>) : {} as Record<string, any[]>;
 
   return (
     <div className="min-h-screen pt-16 py-12">

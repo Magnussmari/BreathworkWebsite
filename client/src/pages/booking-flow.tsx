@@ -40,7 +40,7 @@ export default function BookingFlow() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: services, isLoading: servicesLoading } = useQuery({
+  const { data: services, isLoading: servicesLoading } = useQuery<any[]>({
     queryKey: ['/api/services'],
   });
 
@@ -221,9 +221,9 @@ export default function BookingFlow() {
                     <div key={i} className="animate-pulse bg-muted rounded-lg h-48"></div>
                   ))}
                 </div>
-              ) : (
+              ) : services && services.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {services?.map((service: any) => (
+                  {services.map((service: any) => (
                     <div
                       key={service.id}
                       className={`border-2 rounded-lg p-6 cursor-pointer transition-all hover:border-primary ${
@@ -244,6 +244,10 @@ export default function BookingFlow() {
                       <Badge variant="secondary">{service.category}</Badge>
                     </div>
                   ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No services available at this time.</p>
                 </div>
               )}
             </CardContent>
@@ -312,9 +316,9 @@ export default function BookingFlow() {
                           </div>
                         )}
                       </div>
-                    ) : (
+                    ) : timeSlots && timeSlots.length > 0 ? (
                       <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {timeSlots?.map((slot: any) => (
+                        {timeSlots.map((slot: any) => (
                           <button
                             key={slot.timeSlots.id}
                             className={`w-full p-4 border-2 rounded-lg text-left transition-all hover:border-primary ${
@@ -337,7 +341,7 @@ export default function BookingFlow() {
                           </button>
                         ))}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
